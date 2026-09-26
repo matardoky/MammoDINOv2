@@ -146,3 +146,154 @@ def visualize_dataset(
         plt.show()
 
     plt.close(fig)
+
+
+def visualize_predictions(
+    model,
+    dataset_name: str,
+    num_images: int = 3,
+    conf_thresh: float = 0.3,
+    low_pct: float = 1.0,
+    high_pct: float = 99.0,
+    scale: float = 1.0,
+    save_dir: Optional[str] = None,
+    seed: Optional[int] = None,
+    images_fallback_dir: Optional[str] = None,
+    test_size: int = 812,
+    max_size: int = 1624,
+) -> None:
+    """Visualize Ground Truth vs Model Predictions side-by-side.
+
+    For each selected image:
+      - Left column: Ground Truth bounding boxes & category labels.
+      - Right column: Model predicted bounding boxes, labels, and confidence scores (>= conf_thresh).
+
+    Args:
+        model: Trained detection model in eval mode.
+        dataset_name: Name of a registered detectron2 dataset (e.g. 'mammo_val').
+        num_images: Number of samples to visualize (default: 3).
+        conf_thresh: Minimum confidence score to display predicted boxes (default: 0.3).
+        low_pct: Lower percentile for 16-bit windowing (default: 1.0).
+        high_pct: Upper percentile for 16-bit windowing (default: 99.0).
+        scale: Visualizer drawing scale (default: 1.0).
+        save_dir: Directory where the comparison plot will be saved.
+        seed: Optional random seed for reproducible sampling.
+        images_fallback_dir: Directory to locate images if path in JSON needs resolution.
+        test_size: Resize shortest edge size for model input (default: 812).
+        max_size: Resize max size for model input (default: 1624).
+    """
+    if DatasetCatalog is None or Visualizer is None:
+        raise ImportError("detectron2 is required for visualize_predictions")
+
+    import torch
+    import detectron2.data.transforms as T
+    from rfdetr.data.mapper import Mammo16BitMapper
+
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("matplotlib is required for visualization: pip install matplotlib")
+
+    if seed is not None:
+        random.seed(seed)
+
+    dataset_dicts = DatasetCatalog.get(dataset_name)
+    metadata = MetadataCatalog.get(dataset_name)
+
+    # Prioritize images containing annotations (lesions) for meaningful inspection
+    annotated = [d for d in dataset_dicts if len(d.get("annotations", [])) > 0]
+    if len(annotated) >= num_images:
+        samples = random.sample(annotated, num_images)
+    else:
+        non_annotated = [d for d in dataset_dicts if len(d.get("annotations", [])) == 0]
+        n_extra = min(num_images - len(annotated), len(non_annotated))
+        samples = annotated + random.sample(non_annotated, n_extra)
+
+    # Inference transformation mapper (handles 16-bit normalization and resize)
+    mapper = Mammo16BitMapper(
+        augmentation=[
+            T.ResizeShortestEdge(
+                short_edge_length=(test_size,),
+                max_size=max_size,
+                sample_style="choice",
+            )
+        ],
+        augmentation_with_crop=None,
+        is_train=False,
+        images_fallback_dir=images_fallback_dir,
+    )
+
+    fig, axs = plt.subplots(
+        nrows=len(samples),
+        ncols=2,
+        figsize=(16, 8 * len(samples)),
+        squeeze=False,
+    )
+
+    model.eval()
+
+    for i, d in enumerate(samples):
+        # 1. Read full-resolution 16-bit normalized image for rendering
+        img_rgb = read_mammo_uint8(
+            d["file_name"],
+            low_pct=low_pct,
+            high_pct=high_pct,
+            images_fallback_dir=images_fallback_dir,
+        )
+
+        # 2. Transform input for model forward pass
+        model_input = mapper(d)
+
+        # 3. Model forward pass (inference)
+        with torch.no_grad():
+            outputs = model([model_input])
+
+        instances = outputs[0]["instances"].to("cpu")
+        filtered_instances = instances[instances.scores >= conf_thresh]
+
+        # 4. Render Ground Truth
+        vis_gt = Visualizer(img_rgb, metadata=metadata, scale=scale)
+        out_gt = vis_gt.draw_dataset_dict(d)
+
+        # 5. Render Predictions
+        vis_pred = Visualizer(img_rgb, metadata=metadata, scale=scale)
+        out_pred = vis_pred.draw_instance_predictions(filtered_instances)
+
+        # Left: Ground Truth
+        axs[i, 0].imshow(out_gt.get_image())
+        axs[i, 0].axis("off")
+        n_gt = len(d.get("annotations", []))
+        axs[i, 0].set_title(
+            f"Ground Truth — {Path(d['file_name']).name}\n"
+            f"({n_gt} lesion{'s' if n_gt != 1 else ''})",
+            fontsize=12,
+            fontweight="bold",
+        )
+
+        # Right: Predictions
+        axs[i, 1].imshow(out_pred.get_image())
+        axs[i, 1].axis("off")
+        n_pred = len(filtered_instances)
+        axs[i, 1].set_title(
+            f"Model Predictions (conf >= {conf_thresh:.2f}) — {n_pred} detected",
+            fontsize=12,
+            fontweight="bold",
+        )
+
+    plt.suptitle(
+        f"RF-DETR Mammography Lesion Detection — Inference Comparison ({dataset_name})",
+        fontsize=15,
+        fontweight="bold",
+        y=1.002,
+    )
+    plt.tight_layout()
+
+    if save_dir:
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        out_path = Path(save_dir) / f"pred_vs_gt_{dataset_name}.png"
+        plt.savefig(out_path, dpi=150, bbox_inches="tight")
+        print(f"✅ Comparison visualization saved to: {out_path}")
+    else:
+        plt.show()
+
+    plt.close(fig)

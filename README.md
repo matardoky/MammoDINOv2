@@ -171,6 +171,8 @@ python train.py \
 
 ---
 
+---
+
 ### 3. Evaluation
 
 Evaluate a trained model checkpoint on the validation set to obtain standard COCO metrics ($AP, AP_{50}, AP_{75}, AP_s, AP_m, AP_l$):
@@ -178,13 +180,34 @@ Evaluate a trained model checkpoint on the validation set to obtain standard COC
 ```bash
 python eval.py \
     --config-file configs/mammo_dinov2_dino.py \
-    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR/model_final.pth \
+    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR/model_best.pth \
     --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
     --images-dir /content/mammo_data/images \
     --output-dir ./eval_output \
     --test-size 812 \
     --max-size 1624
 ```
+
+---
+
+### 4. Side-by-Side Visualization (Ground Truth vs Predictions)
+
+Inspect model detections alongside ground-truth radiologist annotations on validation mammograms:
+
+```bash
+python visualize.py \
+    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR/model_best.pth \
+    --config-file configs/mammo_dinov2_dino.py \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --images-dir /content/mammo_data/images \
+    --conf-thresh 0.30 \
+    --num-images 4 \
+    --save-dir ./viz_predictions
+```
+
+- **Left panel**: Ground-truth bounding boxes and lesion classes.
+- **Right panel**: Model predicted bounding boxes with confidence scores (e.g. `Mass 87%`, `ArchDistortion 65%`).
+- Automatically prioritizes mammograms with active lesions for informative inspection.
 
 ---
 
