@@ -6,6 +6,8 @@ A modular, production-ready implementation of **RF-DETR** tailored for lesion de
 
 ## Architecture Overview
 
+![RF-DETR Architecture](assets/architecture.jpg)
+
 ```
 16-bit Mammogram (DICOM/PNG uint16)
          │
