@@ -35,6 +35,7 @@ from detectron2.data import (
     build_detection_train_loader,
     get_detection_dataset_dicts,
 )
+from detectron2.data.samplers import RepeatFactorTrainingSampler
 from detectron2.evaluation import COCOEvaluator
 from detectron2.layers import ShapeSpec
 from detectron2.solver import WarmupParamScheduler
@@ -143,7 +144,7 @@ model = L(DINO)(
             cost_giou=2.0,
             cost_class_type="focal_loss_cost",
             alpha=0.25,
-            gamma=2.0,
+            gamma=2.5,  # Focus matching cost on minority / harder lesions (ArchDistortion)
         ),
         weight_dict={
             "loss_class": 1.0,
@@ -157,7 +158,7 @@ model = L(DINO)(
         eos_coef=0.1,
         loss_class_type="focal_loss",
         alpha=0.25,
-        gamma=2.0,
+        gamma=2.5,      # Focus gradients on minority / harder lesions (ArchDistortion ~7%)
     ),
 
     # ── Misc ─────────────────────────────────────────────────────────────────
@@ -178,8 +179,18 @@ model = L(DINO)(
 
 dataloader = OmegaConf.create()
 
+# Threshold for RepeatFactorTrainingSampler (RFS)
+# Automatically over-samples categories with frequency < 15% (e.g. ArchDistortion ~7.2%)
+dataloader.repeat_thresh = 0.15
+
 dataloader.train = L(build_detection_train_loader)(
     dataset=L(get_detection_dataset_dicts)(names="mammo_train"),
+    sampler=L(RepeatFactorTrainingSampler)(
+        repeat_factors=L(RepeatFactorTrainingSampler.repeat_factors_from_category_frequency)(
+            dataset_dicts="${dataloader.train.dataset}",
+            repeat_thresh="${dataloader.repeat_thresh}",
+        ),
+    ),
     mapper=L(Mammo16BitMapper)(
         augmentation=[
             L(T.RandomFlip)(prob=0.5, horizontal=True, vertical=False),
