@@ -30,7 +30,7 @@ apt-get update -qq && apt-get install -y -qq ninja-build
 
 # 4. Pinned Python Dependencies
 echo "📦 Installing Python dependencies..."
-pip install -q timm==1.0.29 scipy opencv-python pycocotools tensorboard tensorboardX fairscale einops omegaconf fvcore iopath psutil
+pip install -q timm==1.0.29 scipy opencv-python pycocotools matplotlib tensorboard tensorboardX fairscale einops omegaconf fvcore iopath psutil
 
 # 5. Detectron2 Installation
 echo "📦 Installing Detectron2 from git..."

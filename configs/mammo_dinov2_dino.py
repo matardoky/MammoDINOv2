@@ -3,10 +3,16 @@
 LazyConfig for mammography lesion detection with DINOv2 + RF-DETR Projector + detrex DINO.
 
 Structure:
-  - Starts from detrex dino_r50.py (HungarianMatcher, DINOCriterion, Transformer, CDN
+  - Starts from detrex DINO architecture (HungarianMatcher, DINOCriterion, Transformer, CDN
     are all imported from detrex — NOT reimplemented).
-  - Replaces only model.backbone with DINOv2MultiScaleBackbone + BackboneProjectorWrapper.
+  - Replaces model.backbone with DINOv2MultiScaleBackbone + BackboneProjectorWrapper.
   - Adjusts ChannelMapper input_shapes to match the projector's 4-level 256-channel output.
+  - Full Detrex configuration specification:
+      * model: DINO detection transformer
+      * dataloader: train and test loaders with Mammo16BitMapper (16-bit uint16)
+      * optimizer: AdamW with weight decay
+      * lr_multiplier: WarmupParamScheduler with MultiStep decay
+      * train: training hyperparameters (iterations, eval_period, AMP, clip_grad)
 
 num_classes:
   NOT hardcoded here. Set to -1 as a sentinel value.
@@ -15,24 +21,38 @@ num_classes:
   before the model is instantiated.
 """
 
+from __future__ import annotations
+
 import copy
+import torch
 import torch.nn as nn
+from omegaconf import OmegaConf
 
+import detectron2.data.transforms as T
 from detectron2.config import LazyCall as L
+from detectron2.data import (
+    build_detection_test_loader,
+    build_detection_train_loader,
+    get_detection_dataset_dicts,
+)
+from detectron2.evaluation import COCOEvaluator
 from detectron2.layers import ShapeSpec
+from detectron2.solver import WarmupParamScheduler
+from fvcore.common.param_scheduler import MultiStepParamScheduler
 
+from detrex.layers import PositionEmbeddingSine
 from detrex.modeling.matcher import HungarianMatcher
 from detrex.modeling.neck import ChannelMapper
-from detrex.layers import PositionEmbeddingSine
 
 from projects.dino.modeling import (
     DINO,
-    DINOTransformerEncoder,
-    DINOTransformerDecoder,
-    DINOTransformer,
     DINOCriterion,
+    DINOTransformer,
+    DINOTransformerDecoder,
+    DINOTransformerEncoder,
 )
 
+from rfdetr.data.mapper import Mammo16BitMapper
 from rfdetr.models.backbone import DINOv2MultiScaleBackbone
 from rfdetr.models.projector import BackboneProjectorWrapper, MultiScaleProjector
 
@@ -76,8 +96,7 @@ model = L(DINO)(
 
     # ── Neck: maps projector output (all 256ch) to DINO latent dim ───────────
     # The projector already outputs 256ch at 4 strides (7, 14, 28, 56).
-    # ChannelMapper here is identity (in=out=256) but provides the FPN interface
-    # expected by the DINO transformer.
+    # ChannelMapper here provides GroupNorm and the FPN interface expected by DINO.
     neck=L(ChannelMapper)(
         input_shapes={
             "p2": ShapeSpec(channels=256, stride=7),
@@ -152,4 +171,117 @@ model = L(DINO)(
     pixel_std=[67.76, 67.76, 67.76],    # 0.2658 * 255
     device="cuda",
     select_box_nums_for_evaluation=50,
+)
+
+
+# ─── Data Loaders ─────────────────────────────────────────────────────────────
+
+dataloader = OmegaConf.create()
+
+dataloader.train = L(build_detection_train_loader)(
+    dataset=L(get_detection_dataset_dicts)(names="mammo_train"),
+    mapper=L(Mammo16BitMapper)(
+        augmentation=[
+            L(T.RandomFlip)(prob=0.5, horizontal=True, vertical=False),
+            L(T.ResizeShortestEdge)(
+                short_edge_length=(600, 672, 728, 800, 882, 952),
+                max_size=1624,
+                sample_style="choice",
+            ),
+        ],
+        augmentation_with_crop=[
+            L(T.RandomFlip)(prob=0.5, horizontal=True, vertical=False),
+            L(T.ResizeShortestEdge)(
+                short_edge_length=(400, 500, 600),
+                sample_style="choice",
+            ),
+            L(T.RandomCrop)(
+                crop_type="absolute_range",
+                crop_size=(384, 600),
+            ),
+            L(T.ResizeShortestEdge)(
+                short_edge_length=(600, 672, 728, 800, 882, 952),
+                max_size=1624,
+                sample_style="choice",
+            ),
+        ],
+        is_train=True,
+        mask_on=False,
+    ),
+    total_batch_size=2,
+    num_workers=2,
+)
+
+dataloader.test = L(build_detection_test_loader)(
+    dataset=L(get_detection_dataset_dicts)(names="mammo_val", filter_empty=False),
+    mapper=L(Mammo16BitMapper)(
+        augmentation=[
+            L(T.ResizeShortestEdge)(
+                short_edge_length=(812,),
+                max_size=1624,
+                sample_style="choice",
+            ),
+        ],
+        augmentation_with_crop=None,
+        is_train=False,
+        mask_on=False,
+    ),
+    num_workers=2,
+)
+
+dataloader.evaluator = L(COCOEvaluator)(
+    dataset_name="mammo_val",
+)
+
+
+# ─── Optimizer ────────────────────────────────────────────────────────────────
+
+optimizer = L(torch.optim.AdamW)(
+    params=None,  # set in train.py via model.parameters()
+    lr=1e-4,
+    betas=(0.9, 0.999),
+    weight_decay=1e-4,
+)
+
+
+# ─── LR Scheduler ─────────────────────────────────────────────────────────────
+
+# 7200 total iterations, warmup 500 steps, decay by 10x at 5760 steps (80%)
+lr_multiplier = L(WarmupParamScheduler)(
+    scheduler=L(MultiStepParamScheduler)(
+        values=[1.0, 0.1],
+        milestones=[5760, 7200],
+    ),
+    warmup_length=500 / 7200,
+    warmup_method="linear",
+    warmup_factor=0.001,
+)
+
+
+# ─── Training Runtime Configuration ──────────────────────────────────────────
+
+train = dict(
+    output_dir="./output",
+    init_checkpoint="",
+    max_iter=7200,
+    eval_period=600,
+    log_period=20,
+    device="cuda",
+    amp=dict(enabled=True),
+    checkpointer=dict(period=600, max_to_keep=5),
+    clip_grad=dict(
+        enabled=True,
+        params=dict(
+            max_norm=0.1,
+            norm_type=2,
+        ),
+    ),
+    ddp=dict(
+        broadcast_buffers=False,
+        find_unused_parameters=False,
+        fp16_compression=False,
+    ),
+    model_ema=dict(
+        enabled=False,
+    ),
 )

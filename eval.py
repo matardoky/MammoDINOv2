@@ -74,8 +74,11 @@ def main():
     DetectionCheckpointer(model).load(args.weights)
     logger.info(f"Loaded weights from {args.weights}")
 
+    from detectron2.data import DatasetCatalog
+
+    val_dataset_dicts = DatasetCatalog.get("mammo_val")
     test_loader = build_detection_test_loader(
-        dataset="mammo_val",
+        dataset=val_dataset_dicts,
         mapper=Mammo16BitMapper(
             augmentation=[
                 T.ResizeShortestEdge(
@@ -86,6 +89,7 @@ def main():
             ],
             augmentation_with_crop=None,
             is_train=False,
+            images_fallback_dir=args.images_dir,
         ),
         num_workers=args.num_workers,
     )

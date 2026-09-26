@@ -55,6 +55,7 @@ def main():
         high_pct=args.high_pct,
         save_dir=args.save_dir,
         seed=args.seed,
+        images_fallback_dir=args.images_dir,
     )
 
 

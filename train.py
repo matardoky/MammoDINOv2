@@ -113,6 +113,12 @@ class Trainer(SimpleTrainer):
 # ─── Training Logic ────────────────────────────────────────────────────────────
 
 def do_train(args, cfg):
+    device = cfg.train.device if (torch.cuda.is_available() and cfg.train.device == "cuda") else "cpu"
+    if device != cfg.train.device:
+        logger.warning(f"CUDA not available — falling back to device='{device}'")
+    cfg.train.device = device
+    cfg.model.device = device
+
     model = instantiate(cfg.model)
     model.to(cfg.train.device)
     model = create_ddp_model(model)
@@ -124,7 +130,7 @@ def do_train(args, cfg):
         model=model,
         dataloader=train_loader,
         optimizer=optimizer,
-        amp=cfg.train.amp.enabled,
+        amp=cfg.train.amp.enabled and (device == "cuda"),
         clip_grad_params=cfg.train.get("clip_grad", {}).get("params", None),
     )
 
@@ -135,19 +141,39 @@ def do_train(args, cfg):
         optimizer=optimizer,
     )
 
-    trainer.register_hooks([
+    eval_hook = hooks.EvalHook(
+        cfg.train.eval_period,
+        lambda: do_eval(cfg, model),
+        eval_after_train=True,  # always evaluate at end of training
+    )
+
+    all_hooks = [
         hooks.IterationTimer(),
         hooks.LRScheduler(scheduler=instantiate(cfg.lr_multiplier)),
-        hooks.PeriodicCheckpointer(checkpointer, cfg.train.checkpointer.period),
-        hooks.EvalHook(
+        # ── Periodic checkpoint (only main process in multi-GPU) ───────────────
+        hooks.PeriodicCheckpointer(checkpointer, cfg.train.checkpointer.period)
+        if comm.is_main_process()
+        else None,
+        eval_hook,
+        # ── Best model checkpoint (only main process in multi-GPU) ────────────
+        hooks.BestCheckpointer(
             cfg.train.eval_period,
-            lambda: do_eval(cfg, model),
-        ),
+            checkpointer,
+            val_metric="bbox/AP50",
+            mode="max",
+            file_prefix="model_best",
+        )
+        if comm.is_main_process()
+        else None,
+        # ── Periodic log / tensorboard writer ─────────────────────────────────
         hooks.PeriodicWriter(
             default_writers(cfg.train.output_dir, cfg.train.max_iter),
             period=cfg.train.log_period,
-        ),
-    ])
+        )
+        if comm.is_main_process()
+        else None,
+    ]
+    trainer.register_hooks([h for h in all_hooks if h is not None])
 
     start_iter = (
         checkpointer.resume_or_load(cfg.train.init_checkpoint, resume=args.resume).get(
@@ -161,30 +187,35 @@ def do_train(args, cfg):
 
 
 def do_eval(cfg, model):
-    from detectron2.evaluation import COCOEvaluator, inference_on_dataset, print_csv_format
-    from detectron2.data import build_detection_test_loader
-    from rfdetr.data.mapper import Mammo16BitMapper
-    import detectron2.data.transforms as T
+    if "evaluator" in cfg.dataloader and "test" in cfg.dataloader:
+        test_loader = instantiate(cfg.dataloader.test)
+        evaluator = instantiate(cfg.dataloader.evaluator)
+    else:
+        from detectron2.data import DatasetCatalog, build_detection_test_loader
+        from detectron2.evaluation import COCOEvaluator
+        from rfdetr.data.mapper import Mammo16BitMapper
+        import detectron2.data.transforms as T
 
-    test_loader = build_detection_test_loader(
-        dataset=cfg.dataloader.test.dataset,
-        mapper=Mammo16BitMapper(
-            augmentation=[
-                T.ResizeShortestEdge(
-                    short_edge_length=(cfg.dataloader.get("test_size", 812),),
-                    max_size=cfg.dataloader.get("max_size", 1624),
-                    sample_style="choice",
-                )
-            ],
-            augmentation_with_crop=None,
-            is_train=False,
-        ),
-        num_workers=cfg.dataloader.test.num_workers,
-    )
-    evaluator = COCOEvaluator(
-        cfg.dataloader.test.dataset,
-        output_dir=os.path.join(cfg.train.output_dir, "eval"),
-    )
+        test_loader = build_detection_test_loader(
+            dataset=DatasetCatalog.get("mammo_val"),
+            mapper=Mammo16BitMapper(
+                augmentation=[
+                    T.ResizeShortestEdge(
+                        short_edge_length=(812,),
+                        max_size=1624,
+                        sample_style="choice",
+                    )
+                ],
+                augmentation_with_crop=None,
+                is_train=False,
+            ),
+            num_workers=2,
+        )
+        evaluator = COCOEvaluator(
+            dataset_name="mammo_val",
+            output_dir=os.path.join(cfg.train.output_dir, "eval"),
+        )
+
     results = inference_on_dataset(model, test_loader, evaluator)
     print_csv_format(results)
     return results

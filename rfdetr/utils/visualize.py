@@ -24,15 +24,24 @@ def read_mammo_uint8(
     file_name: str,
     low_pct: float = 1.0,
     high_pct: float = 99.0,
+    images_fallback_dir: Optional[str] = None,
 ) -> np.ndarray:
     """Read a 16-bit mammography image and return uint8 RGB (H, W, 3).
 
     Applies percentile windowing so the image is visible in matplotlib.
     Falls back to standard read for 8-bit images.
     """
-    img = cv2.imread(file_name, cv2.IMREAD_UNCHANGED)
+    import os
+
+    path = file_name
+    if not os.path.isfile(path) and images_fallback_dir:
+        candidate = os.path.join(images_fallback_dir, os.path.basename(file_name))
+        if os.path.isfile(candidate):
+            path = candidate
+
+    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if img is None:
-        raise IOError(f"Could not read: {file_name}")
+        raise IOError(f"Could not read: {path}")
 
     if img.ndim == 3:
         # Already multi-channel BGR 8-bit
@@ -56,6 +65,7 @@ def visualize_dataset(
     scale: float = 1.0,
     save_dir: Optional[str] = None,
     seed: Optional[int] = None,
+    images_fallback_dir: Optional[str] = None,
 ) -> None:
     """Visualize random samples from a registered detectron2 dataset.
 
@@ -70,6 +80,7 @@ def visualize_dataset(
         scale: Visualizer drawing scale (default: 1.0).
         save_dir: If provided, save figures to this directory instead of showing.
         seed: Optional random seed for reproducibility.
+        images_fallback_dir: Optional fallback directory for locating images.
     """
     try:
         import matplotlib.pyplot as plt
@@ -93,7 +104,12 @@ def visualize_dataset(
 
     for i, d in enumerate(samples):
         # Read with our 16-bit normalizer instead of raw cv2.imread
-        img_rgb = read_mammo_uint8(d["file_name"], low_pct=low_pct, high_pct=high_pct)
+        img_rgb = read_mammo_uint8(
+            d["file_name"],
+            low_pct=low_pct,
+            high_pct=high_pct,
+            images_fallback_dir=images_fallback_dir,
+        )
 
         # detectron2 Visualizer expects RGB
         visualizer = Visualizer(img_rgb, metadata=metadata, scale=scale)
