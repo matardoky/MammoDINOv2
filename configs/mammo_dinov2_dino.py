@@ -39,6 +39,7 @@ from detectron2.data.samplers import RepeatFactorTrainingSampler
 from detectron2.evaluation import COCOEvaluator
 from detectron2.layers import ShapeSpec
 from detectron2.solver import WarmupParamScheduler
+from detectron2.solver.build import get_default_optimizer_params
 from fvcore.common.param_scheduler import MultiStepParamScheduler
 
 from detrex.layers import PositionEmbeddingSine
@@ -175,6 +176,19 @@ model = L(DINO)(
 )
 
 
+# ─── Auxiliary Loss Weights (Detrex DINO standard) ───────────────────────────
+# Deep supervision for the 6 decoder layers and the encoder proposal head
+base_weight_dict = copy.deepcopy(model.criterion.weight_dict)
+if model.get("aux_loss", True):
+    weight_dict = copy.deepcopy(base_weight_dict)
+    aux_weight_dict = {}
+    aux_weight_dict.update({k + "_enc": v for k, v in base_weight_dict.items()})
+    for i in range(model.transformer.decoder.num_layers - 1):
+        aux_weight_dict.update({k + f"_{i}": v for k, v in base_weight_dict.items()})
+    weight_dict.update(aux_weight_dict)
+    model.criterion.weight_dict = weight_dict
+
+
 # ─── Data Loaders ─────────────────────────────────────────────────────────────
 
 dataloader = OmegaConf.create()
@@ -245,10 +259,14 @@ dataloader.evaluator = L(COCOEvaluator)(
 )
 
 
-# ─── Optimizer ────────────────────────────────────────────────────────────────
+# ─── Optimizer (Detrex standard with backbone LR multiplier) ──────────────────
 
 optimizer = L(torch.optim.AdamW)(
-    params=None,  # set in train.py via model.parameters()
+    params=L(get_default_optimizer_params)(
+        base_lr="${..lr}",
+        weight_decay_norm=0.0,
+        lr_factor_func=lambda module_name: 0.1 if "backbone" in module_name else 1.0,
+    ),
     lr=1e-4,
     betas=(0.9, 0.999),
     weight_decay=1e-4,
