@@ -109,15 +109,32 @@ class DINOv2MultiScaleBackbone(Backbone):
 
         if "teacher_backbone" in ckpt:
             sd = ckpt["teacher_backbone"]
+        elif "teacher" in ckpt:
+            sd = ckpt["teacher"]
         elif "model_state_dict" in ckpt:
             sd = {
                 k: v for k, v in ckpt["model_state_dict"].items()
-                if k.startswith("teacher_backbone.")
+                if k.startswith(("teacher_backbone.", "teacher.", "backbone.", "vit."))
             }
+            if not sd:
+                sd = ckpt["model_state_dict"]
+        elif "model" in ckpt:
+            sd = ckpt["model"]
+        elif "state_dict" in ckpt:
+            sd = ckpt["state_dict"]
         else:
             sd = {k: v for k, v in ckpt.items() if "student" not in k.lower()}
 
-        prefixes = ("teacher_backbone.vit.", "teacher_backbone.", "vit.", "backbone.")
+        prefixes = (
+            "teacher_backbone.vit.",
+            "teacher_backbone.",
+            "teacher.vit.",
+            "teacher.",
+            "module.vit.",
+            "module.",
+            "vit.",
+            "backbone.",
+        )
         clean = {}
         for k, v in sd.items():
             for pre in prefixes:
