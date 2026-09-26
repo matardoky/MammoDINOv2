@@ -235,7 +235,7 @@ visualize_dataset("mammo_train", num_images=3, seed=42)
 
 ## Automated Verification & Tests
 
-Run the comprehensive automated test suite (56 tests covering multi-scale feature shapes, pyramid strides, freezing logic, gradient backpropagation, and interface contracts):
+Run the comprehensive automated test suite (73 tests covering multi-scale feature shapes, pyramid strides, partial freezing logic, gradient backpropagation, 16-bit uint16 normalization, CLI parsing, and end-to-end integration contracts):
 
 ```bash
 python -m pytest tests/

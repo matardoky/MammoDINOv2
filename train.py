@@ -138,11 +138,14 @@ def do_train(args, cfg):
         clip_grad_params=cfg.train.get("clip_grad", {}).get("params", None),
     )
 
+    lr_scheduler = instantiate(cfg.lr_multiplier)
+
     checkpointer = DetectionCheckpointer(
         model,
         cfg.train.output_dir,
         trainer=trainer,
         optimizer=optimizer,
+        scheduler=lr_scheduler,
     )
 
     eval_hook = hooks.EvalHook(
@@ -153,7 +156,7 @@ def do_train(args, cfg):
 
     all_hooks = [
         hooks.IterationTimer(),
-        hooks.LRScheduler(scheduler=instantiate(cfg.lr_multiplier)),
+        hooks.LRScheduler(scheduler=lr_scheduler),
         # ── Periodic checkpoint (only main process in multi-GPU) ───────────────
         hooks.PeriodicCheckpointer(checkpointer, cfg.train.checkpointer.period)
         if comm.is_main_process()

@@ -67,6 +67,7 @@ def main():
 
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    cfg.model.device = device
     model = instantiate(cfg.model)
     model.to(device)
     model.eval()

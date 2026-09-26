@@ -256,6 +256,7 @@ dataloader.test = L(build_detection_test_loader)(
 
 dataloader.evaluator = L(COCOEvaluator)(
     dataset_name="mammo_val",
+    output_dir="${train.output_dir}/eval",
 )
 
 

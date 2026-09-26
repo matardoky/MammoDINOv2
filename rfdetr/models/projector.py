@@ -277,7 +277,7 @@ class MultiScaleProjector(nn.Module):
 
         if self.survival_prob < 1.0 and self.training:
             final_drop_prob = 1.0 - self.survival_prob
-            drop_p = np.random.uniform()
+            drop_p = float(torch.rand(1).item())
             for i in range(1, num_features):
                 critical_drop_prob = i * (final_drop_prob / (num_features - 1))
                 if drop_p < critical_drop_prob:
