@@ -1,0 +1,28 @@
+# Pinned core vision model dependency
+timm==1.0.29
+
+# Numeric & Computer Vision
+numpy
+opencv-python
+scipy
+pycocotools
+
+# Configuration & Utilities
+omegaconf>=2.3.0
+fvcore
+iopath
+einops
+fairscale
+
+# Visualization & Logging
+matplotlib>=3.5.0
+tensorboard
+tensorboardX
+
+# Testing
+pytest>=7.0.0
+
+# Note: detectron2 and detrex are compiled from source on GPU instances.
+# Run 'bash scripts/setup_colab.sh' or install via:
+# pip install 'git+https://github.com/facebookresearch/detectron2.git'
+# git clone https://github.com/IDEA-Research/detrex.git && cd detrex && pip install -e .
