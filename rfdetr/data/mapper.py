@@ -21,8 +21,12 @@ import cv2
 import numpy as np
 import torch
 
-import detectron2.data.transforms as T
-from detectron2.data import detection_utils as utils
+try:
+    import detectron2.data.transforms as T
+    from detectron2.data import detection_utils as utils
+except ImportError:
+    T = None
+    utils = None
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +101,8 @@ class Mammo16BitMapper:
         return np.stack([img_u8, img_u8, img_u8], axis=-1)  # (H, W, 3) uint8
 
     def __call__(self, dataset_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if utils is None or T is None:
+            raise ImportError("detectron2 is required to apply augmentations and instance transformations in __call__")
         dataset_dict = copy.deepcopy(dataset_dict)
         image = self._read_image(dataset_dict["file_name"])
         utils.check_image_size(dataset_dict, image)

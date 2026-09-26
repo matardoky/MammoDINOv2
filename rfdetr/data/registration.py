@@ -14,8 +14,13 @@ import json
 import logging
 from typing import List
 
-from detectron2.data import DatasetCatalog, MetadataCatalog
-from detectron2.data.datasets import load_coco_json
+try:
+    from detectron2.data import DatasetCatalog, MetadataCatalog
+    from detectron2.data.datasets import load_coco_json
+except ImportError:
+    DatasetCatalog = None
+    MetadataCatalog = None
+    load_coco_json = None
 
 logger = logging.getLogger(__name__)
 

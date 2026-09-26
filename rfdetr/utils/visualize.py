@@ -16,8 +16,13 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from detectron2.data import DatasetCatalog, MetadataCatalog
-from detectron2.utils.visualizer import Visualizer
+try:
+    from detectron2.data import DatasetCatalog, MetadataCatalog
+    from detectron2.utils.visualizer import Visualizer
+except ImportError:
+    DatasetCatalog = None
+    MetadataCatalog = None
+    Visualizer = None
 
 
 def read_mammo_uint8(
