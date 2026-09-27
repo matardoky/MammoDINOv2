@@ -87,8 +87,8 @@ RF-DETR/
 Run the automated setup script to install dependencies and compile the Detrex CUDA extensions:
 
 ```bash
-git clone https://github.com/<your-username>/RF-DETR.git
-cd RF-DETR
+git clone https://github.com/matardoky/MammoDINOv2.git
+cd MammoDINOv2
 bash scripts/setup_colab.sh
 ```
 
@@ -97,8 +97,8 @@ bash scripts/setup_colab.sh
 To run unit tests and verify model architecture without CUDA:
 
 ```bash
-git clone https://github.com/<your-username>/RF-DETR.git
-cd RF-DETR
+git clone https://github.com/matardoky/MammoDINOv2.git
+cd MammoDINOv2
 pip install -e ".[dev]"
 ```
 
