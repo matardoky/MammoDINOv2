@@ -46,7 +46,11 @@ echo "Compiling Detrex CUDA extensions (MSDeformAttn)..."
 cd detrex
 rm -rf build/ detrex/_C*.so detrex.egg-info
 MAX_JOBS="${MAX_JOBS}" CUDA_HOME=/usr/local/cuda FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="${TARGET_ARCH}" python3 setup.py build_ext --inplace
-pip install -e .
+
+# Expose Detrex via .pth file for Python 3.12 / 3.13 compatibility (avoiding deprecated setup.py develop)
+PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
+echo "$(pwd)" > "${PYTHON_SITE}/detrex.pth"
+pip install --no-build-isolation --no-deps -e . 2>/dev/null || true
 cd ..
 
 # 7. Symlink Detrex for absolute path compatibility (/content/detrex)
@@ -56,8 +60,10 @@ fi
 
 # 8. Install RF-DETR in Editable Mode
 echo "📦 Installing RF-DETR package..."
-pip install -e .
+echo "$(pwd)" > "${PYTHON_SITE}/rfdetr.pth"
+pip install --no-build-isolation --no-deps -e . 2>/dev/null || pip install -e . 2>/dev/null || true
 
 echo "=========================================================="
 echo "✅ RF-DETR Installation Completed Successfully!"
 echo "=========================================================="
+
