@@ -16,9 +16,13 @@ import logging
 import os
 import sys
 
-_default_detrex = os.environ.get("DETREX_ROOT", "/content/detrex")
+_local_detrex = os.path.join(os.path.dirname(os.path.abspath(__file__)), "detrex")
+_default_detrex = os.environ.get(
+    "DETREX_ROOT",
+    _local_detrex if os.path.isdir(_local_detrex) else "/content/detrex"
+)
 sys.path.insert(0, _default_detrex)
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import detectron2.data.transforms as T
 from detectron2.checkpoint import DetectionCheckpointer

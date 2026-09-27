@@ -13,9 +13,10 @@ A modular, production-ready implementation of **RF-DETR** tailored for lesion de
          │
          ▼
 [Mammo16BitMapper]
-  - Percentile intensity windowing (1% - 99%)
-  - Normalization to uint8 & replication to 3 channels (RGB)
-  - Geometric & crop augmentations (Detectron2)
+  - Foreground percentile intensity windowing (1% - 99%, excluding black air)
+  - Continuous float32 [0.0, 1.0] output preserving full 16-bit dynamic range (RGB 3 channels)
+  - LesionAwareCrop augmentation (Detectron2 canonical, crop_prob=0.0 default)
+  - Geometric & multi-scale augmentations (Detectron2, multiples of 14: 644..812)
          │
          ▼
 [DINOv2MultiScaleBackbone] (ViT-S/14 pretrained on mammography)
@@ -139,7 +140,26 @@ python train.py \
     --images-dir /content/mammo_data/images \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
     --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR \
+    --accum-steps 8 \
+    --amp-dtype auto \
     --num-gpus 1
+```
+
+> **Key Runtime Optimizations:**
+> - **Effective Batch Size = 16**: With physical `batch_size = 2` (to fit on 15 GB Colab GPUs) and `accum_steps = 8`, the model trains with an effective batch size of $2 \times 8 = 16$, ensuring stable Hungarian matching and contrastive denoising.
+> - **Mixed Precision (`--amp-dtype auto`)**: Automatically uses `bfloat16` on modern GPUs (A100, L4) without loss scaler overhead, and safely falls back to `float16` with `GradScaler` on T4 / V100.
+> - **Gradient Norm Logging**: Logs `grad_norm` at each step to TensorBoard to monitor transformer stability.
+
+#### Testing Lesion-Aware Crop after First Training Run
+By default, `crop_prob = 0.0` (first training runs on full uncropped images with multi-scale lengths $644 \dots 812$).
+To activate lesion-aware cropping (guaranteeing 100% containment of target lesions in $518 \times 518$ windows):
+
+```bash
+python train.py \
+    --config-file configs/mammo_dinov2_dino.py \
+    --train-json ... --val-json ... --images-dir ... \
+    --output-dir ./output \
+    --opts dataloader.train.mapper.crop_prob=0.2
 ```
 
 #### Overriding Hyperparameters via `--opts`
@@ -153,8 +173,8 @@ python train.py \
     --opts train.max_iter=7200 \
            train.eval_period=600 \
            train.log_period=20 \
-           model.num_queries=100 \
-           model.backbone.backbone.freeze_blocks=4
+           model.num_queries=50 \
+           model.backbone.backbone.freeze_blocks=8
 ```
 
 #### Resuming Training
@@ -235,7 +255,7 @@ visualize_dataset("mammo_train", num_images=3, seed=42)
 
 ## Automated Verification & Tests
 
-Run the comprehensive automated test suite (73 tests covering multi-scale feature shapes, pyramid strides, partial freezing logic, gradient backpropagation, 16-bit uint16 normalization, CLI parsing, and end-to-end integration contracts):
+Run the comprehensive automated test suite (85 tests covering multi-scale feature shapes, pyramid strides, partial freezing logic, gradient backpropagation, 16-bit float32 normalization, lesion-aware cropping containment, gradient accumulation equivalence, CLI parsing, and end-to-end integration contracts):
 
 ```bash
 python -m pytest tests/

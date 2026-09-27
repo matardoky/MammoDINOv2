@@ -49,7 +49,12 @@ MAX_JOBS="${MAX_JOBS}" CUDA_HOME=/usr/local/cuda FORCE_CUDA=1 TORCH_CUDA_ARCH_LI
 pip install -e .
 cd ..
 
-# 7. Install RF-DETR in Editable Mode
+# 7. Symlink Detrex for absolute path compatibility (/content/detrex)
+if [ -d "/content" ] && [ ! -e "/content/detrex" ]; then
+    ln -s "$(pwd)/detrex" /content/detrex 2>/dev/null || true
+fi
+
+# 8. Install RF-DETR in Editable Mode
 echo "📦 Installing RF-DETR package..."
 pip install -e .
 
