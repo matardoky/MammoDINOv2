@@ -32,7 +32,6 @@ from detectron2.evaluation import COCOEvaluator, inference_on_dataset, print_csv
 
 from rfdetr.data.mapper import Mammo16BitMapper
 from rfdetr.data.registration import register_mammo_dataset
-from rfdetr.utils.amp_patch import patch_detrex_ms_deform_attn, patch_detrex_source_file
 
 logger = logging.getLogger("mammo_eval")
 
@@ -52,10 +51,6 @@ def main():
 
     if args.detrex_root not in sys.path:
         sys.path.insert(0, args.detrex_root)
-
-    # Patch Detrex MultiScaleDeformableAttn to ensure seamless fp16/bf16 CUDA execution
-    patch_detrex_source_file(args.detrex_root)
-    patch_detrex_ms_deform_attn()
 
     os.makedirs(args.output_dir, exist_ok=True)
 

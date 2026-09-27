@@ -28,7 +28,16 @@ import argparse
 import logging
 import os
 import sys
+import warnings
 from typing import Any, Dict, List, Optional
+
+# Suppress known non-critical deprecation warnings from Detrex / timm / pkg_resources
+warnings.filterwarnings("ignore", category=FutureWarning, module=r".*timm\.models\.layers.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r".*detectron2\.layers\.dcn_v3.*")
+warnings.filterwarnings("ignore", category=FutureWarning, message=r".*torch\.cuda\.amp\.custom_.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=r".*pkg_resources is deprecated.*")
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 # Ensure detrex projects are importable (set DETREX_ROOT env var or pass --detrex-root)
@@ -54,15 +63,12 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils import comm
 
 from rfdetr.data.registration import register_mammo_dataset
-from rfdetr.utils.amp_patch import patch_detrex_ms_deform_attn, patch_detrex_source_file
 
 logger = logging.getLogger("mammo_train")
 
 
+# ─── Detrex Trainer with Gradient Accumulation & Pure FP32 ───────────────────
 
-# ─── Detrex Trainer with Gradient Accumulation & AMP bf16/fp16 ───────────────
-
-from contextlib import nullcontext
 import time
 import torch
 from torch.nn.parallel import DataParallel, DistributedDataParallel
@@ -70,48 +76,24 @@ from detectron2.engine import SimpleTrainer
 
 
 class Trainer(SimpleTrainer):
-    """Combines SimpleTrainer + AMP (bf16/fp16) + Gradient Accumulation + Grad Norm Logging.
-
-    Adapted from detrex/tools/train_net.py with single-GPU and Colab optimizations:
-      - Gradient accumulation over N batches (effective batch size = physical batch * N).
-      - bfloat16 native execution without unnecessary GradScaler.
-      - float16 execution with GradScaler when bfloat16 is unsupported.
-      - Logging of the true L2 gradient norm to EventStorage/TensorBoard.
-    """
+    """Combines SimpleTrainer with Gradient Accumulation + Grad Norm Logging in robust FP32."""
 
     def __init__(
         self,
         model,
         dataloader,
         optimizer,
-        amp: bool = False,
-        amp_dtype: torch.dtype = torch.float16,
         clip_grad_params: Optional[dict] = None,
-        grad_scaler=None,
         grad_accum_steps: int = 1,
     ):
         super().__init__(model=model, data_loader=dataloader, optimizer=optimizer)
-        unsupported = "AMPTrainer does not support single-process multi-device training!"
+        unsupported = "Trainer does not support single-process multi-device training!"
         if isinstance(model, DistributedDataParallel):
             assert not (model.device_ids and len(model.device_ids) > 1), unsupported
         assert not isinstance(model, DataParallel), unsupported
 
-        self.amp = amp
-        self.amp_dtype = amp_dtype
         self.clip_grad_params = clip_grad_params
         self.grad_accum_steps = max(1, int(grad_accum_steps))
-
-        # GradScaler is ONLY required for float16 to prevent underflow.
-        # bfloat16 shares the 8-bit exponent of float32 and does not need scaling.
-        self.grad_scaler = None
-        if amp and (self.amp_dtype == torch.float16):
-            if grad_scaler is None:
-                if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
-                    grad_scaler = torch.amp.GradScaler("cuda")
-                else:
-                    from torch.cuda.amp import GradScaler
-                    grad_scaler = GradScaler()
-            self.grad_scaler = grad_scaler
 
     def _should_step(self) -> bool:
         """Step optimizer every grad_accum_steps or at the final iteration."""
@@ -139,37 +121,17 @@ class Trainer(SimpleTrainer):
         accum = self.grad_accum_steps
         do_step = self._should_step()
 
-        # Context manager for autocast
-        autocast_ctx = (
-            torch.amp.autocast("cuda", dtype=self.amp_dtype)
-            if (self.amp and torch.cuda.is_available())
-            else nullcontext()
-        )
+        loss_dict = self.model(data)
+        if isinstance(loss_dict, torch.Tensor):
+            loss_dict = {"total_loss": loss_dict}
+        losses = sum(loss_dict.values()) / accum
 
-        with autocast_ctx:
-            loss_dict = self.model(data)
-            if isinstance(loss_dict, torch.Tensor):
-                loss_dict = {"total_loss": loss_dict}
-            losses = sum(loss_dict.values()) / accum
-
-        if self.grad_scaler is not None:
-            # float16 with loss scaler
-            self.grad_scaler.scale(losses).backward()
-            if do_step:
-                if self.clip_grad_params:
-                    self.grad_scaler.unscale_(self.optimizer)
-                    self.clip_grads(self.model.parameters())
-                self.grad_scaler.step(self.optimizer)
-                self.grad_scaler.update()
-                self.optimizer.zero_grad()
-        else:
-            # bfloat16 or float32 (no scaler needed)
-            losses.backward()
-            if do_step:
-                if self.clip_grad_params:
-                    self.clip_grads(self.model.parameters())
-                self.optimizer.step()
-                self.optimizer.zero_grad()
+        losses.backward()
+        if do_step:
+            if self.clip_grad_params:
+                self.clip_grads(self.model.parameters())
+            self.optimizer.step()
+            self.optimizer.zero_grad()
 
         # Write true unscaled micro-batch losses for dashboard logging
         loss_log = {
@@ -178,16 +140,6 @@ class Trainer(SimpleTrainer):
         }
         self._write_metrics(loss_log, data_time)
 
-    def state_dict(self):
-        ret = super().state_dict()
-        if self.grad_scaler is not None:
-            ret["grad_scaler"] = self.grad_scaler.state_dict()
-        return ret
-
-    def load_state_dict(self, sd):
-        super().load_state_dict(sd)
-        if self.grad_scaler is not None and "grad_scaler" in sd:
-            self.grad_scaler.load_state_dict(sd["grad_scaler"])
 
 
 # ─── Training Logic ────────────────────────────────────────────────────────────
@@ -211,25 +163,6 @@ def do_train(args, cfg):
 
     train_loader = instantiate(cfg.dataloader.train)
 
-    # Determine mixed precision: default False (robust FP32 baseline) unless explicitly enabled
-    if getattr(args, "amp", None) is not None:
-        amp_enabled = bool(args.amp) and (device == "cuda")
-    else:
-        amp_enabled = bool(cfg.train.amp.get("enabled", False)) and (device == "cuda")
-
-    if amp_enabled:
-        amp_dtype_str = getattr(args, "amp_dtype", None) or cfg.train.amp.get("dtype", "float16")
-        if amp_dtype_str in ("auto", "float16"):
-            amp_dtype = torch.float16
-        elif amp_dtype_str == "bfloat16":
-            amp_dtype = torch.bfloat16
-        else:
-            amp_dtype = torch.float32
-        logger.info(f"AMP enabled with dtype={amp_dtype}")
-    else:
-        amp_dtype = torch.float32
-        logger.info("AMP disabled — training in robust standard FP32 (float32)")
-
     # Determine gradient accumulation steps (CLI flag overrides config)
     grad_accum_steps = (
         getattr(args, "accum_steps", None)
@@ -241,8 +174,6 @@ def do_train(args, cfg):
         model=model,
         dataloader=train_loader,
         optimizer=optimizer,
-        amp=amp_enabled,
-        amp_dtype=amp_dtype,
         clip_grad_params=cfg.train.get("clip_grad", {}).get("params", None),
         grad_accum_steps=grad_accum_steps,
     )
@@ -351,12 +282,6 @@ def build_arg_parser():
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to DINOv2 checkpoint .pth")
     parser.add_argument("--accum-steps",     type=int, default=None,
                         help="Gradient accumulation steps (default: from config or 1)")
-    parser.add_argument("--amp",             dest="amp", action="store_true", default=None,
-                        help="Enable AMP mixed precision (default: False, trains in robust FP32)")
-    parser.add_argument("--no-amp",          dest="amp", action="store_false",
-                        help="Disable AMP mixed precision (force train in standard FP32)")
-    parser.add_argument("--amp-dtype",       choices=["auto", "bfloat16", "float16", "float32"], default="float16",
-                        help="Mixed precision dtype when AMP is enabled: float16 (default), bfloat16, float32, or auto")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
     return parser
@@ -367,9 +292,8 @@ def main(args):
     if args.detrex_root not in sys.path:
         sys.path.insert(0, args.detrex_root)
 
-    # Patch Detrex MultiScaleDeformableAttn to ensure seamless fp16/bf16 CUDA execution
-    patch_detrex_source_file(args.detrex_root)
-    patch_detrex_ms_deform_attn()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     # Register mammography datasets and auto-detect classes from JSON
     thing_classes = register_mammo_dataset(

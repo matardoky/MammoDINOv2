@@ -297,10 +297,6 @@ train = dict(
     eval_period=600,
     log_period=20,
     device="cuda",
-    amp=dict(
-        enabled=False,  # Baseline standard: FP32 (AMP disabled for maximum simplicity and stability)
-        dtype="float16",  # Used if AMP is explicitly enabled via --amp
-    ),
     grad_accum_steps=8,  # Effective batch size = total_batch_size (2) * 8 = 16
     checkpointer=dict(period=600, max_to_keep=5),
     clip_grad=dict(
