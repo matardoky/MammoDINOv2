@@ -71,7 +71,7 @@ def patch_detrex_source_file(detrex_root: str | None = None) -> bool:
 
 
 def patch_detrex_ms_deform_attn() -> bool:
-    """In-memory monkey-patch for Detrex MultiScaleDeformableAttn.forward.
+    """In-memory monkey-patch for Detrex MultiScaleDeformableAttention.forward.
 
     Guarantees that `value`, `sampling_locations`, and `attention_weights`
     are in float32 when calling C++ `_C.ms_deform_attn_forward`, and that
@@ -80,12 +80,16 @@ def patch_detrex_ms_deform_attn() -> bool:
     """
     try:
         import detrex.layers.multi_scale_deform_attn as msda
-    except (ImportError, ModuleNotFoundError):
-        logger.debug("Detrex not installed or importable yet; skipping in-memory patch.")
-        return False
+        cls = getattr(msda, "MultiScaleDeformableAttention", getattr(msda, "MultiScaleDeformableAttn", None))
+        if cls is None:
+            logger.debug("MultiScaleDeformableAttention not found in detrex.")
+            return False
 
-    if getattr(msda.MultiScaleDeformableAttn, "_is_mammo_patched", False):
-        return True
+        if getattr(cls, "_is_mammo_patched", False):
+            return True
+    except Exception as e:
+        logger.debug(f"Detrex not importable or could not inspect: {e}")
+        return False
 
     def safe_forward(
         self,
@@ -185,8 +189,11 @@ def patch_detrex_ms_deform_attn() -> bool:
             output = output.permute(1, 0, 2)
 
         return self.dropout(output) + identity
-
-    msda.MultiScaleDeformableAttn.forward = safe_forward
-    msda.MultiScaleDeformableAttn._is_mammo_patched = True
-    logger.info("Detrex MultiScaleDeformableAttn successfully patched for fp16/bf16 CUDA execution.")
-    return True
+    try:
+        cls.forward = safe_forward
+        cls._is_mammo_patched = True
+        logger.info("Detrex MultiScaleDeformableAttention successfully patched for fp16/bf16 CUDA execution.")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not monkey-patch MultiScaleDeformableAttention: {e}")
+        return False
