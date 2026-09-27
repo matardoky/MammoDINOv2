@@ -81,12 +81,17 @@ def register_mammo_dataset(
 
     for name, json_path in [(train_name, train_json), (val_name, val_json)]:
         # Safely unregister if previously registered (allows switching dataset JSON in same session)
-        if DatasetCatalog is not None:
-            if hasattr(DatasetCatalog, "_REGISTERED"):
-                DatasetCatalog._REGISTERED.pop(name, None)
-        if MetadataCatalog is not None:
-            if hasattr(MetadataCatalog, "_REGISTERED"):
-                MetadataCatalog._REGISTERED.pop(name, None)
+        if DatasetCatalog is not None and name in DatasetCatalog:
+            try:
+                DatasetCatalog.pop(name, None)
+            except Exception:
+                pass
+        if MetadataCatalog is not None and name in MetadataCatalog:
+            try:
+                MetadataCatalog.pop(name, None)
+            except Exception:
+                pass
+
 
         if DatasetCatalog is not None and load_coco_json is not None:
             DatasetCatalog.register(

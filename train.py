@@ -241,13 +241,16 @@ def do_train(args, cfg):
 
     lr_scheduler = instantiate(cfg.lr_multiplier)
 
+    extra_checkpointables = {"trainer": trainer, "optimizer": optimizer}
+    if hasattr(lr_scheduler, "state_dict"):
+        extra_checkpointables["scheduler"] = lr_scheduler
+
     checkpointer = DetectionCheckpointer(
         model,
         cfg.train.output_dir,
-        trainer=trainer,
-        optimizer=optimizer,
-        scheduler=lr_scheduler,
+        **extra_checkpointables,
     )
+
 
     eval_hook = hooks.EvalHook(
         cfg.train.eval_period,
