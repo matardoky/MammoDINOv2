@@ -389,3 +389,60 @@ def test_mammo_mapper_integrates_crop_aug():
     assert mapper.crop_aug.prob == 0.0
     assert mapper.crop_size == (518, 518)
     assert mapper.crop_aug.crop_size == (518, 518)
+
+
+def test_registration_metadata_and_re_registration(synthetic_coco_json, tmp_dir):
+    """Verify register_mammo_dataset registers classes and supports re-registration."""
+    from rfdetr.data.registration import register_mammo_dataset
+
+    classes = register_mammo_dataset(
+        train_json=synthetic_coco_json,
+        val_json=synthetic_coco_json,
+        images_dir=tmp_dir,
+        train_name="test_mammo_train",
+        val_name="test_mammo_val",
+    )
+    assert classes == ["Asymmetry", "Mass", "ArchDistortion"]
+    assert len(classes) == 3
+
+    # Create a 1-class JSON to verify re-registration
+    one_class_json = os.path.join(tmp_dir, "one_class.json")
+    with open(one_class_json, "w", encoding="utf-8") as f:
+        json.dump({
+            "images": [{"id": 1, "file_name": "x.png", "height": 100, "width": 100}],
+            "categories": [{"id": 1, "name": "Mass"}],
+            "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [10, 10, 20, 20], "area": 400, "iscrowd": 0}],
+        }, f)
+
+    new_classes = register_mammo_dataset(
+        train_json=one_class_json,
+        val_json=one_class_json,
+        images_dir=tmp_dir,
+        train_name="test_mammo_train",
+        val_name="test_mammo_val",
+    )
+    assert new_classes == ["Mass"]
+    assert len(new_classes) == 1
+
+
+def test_coco_contiguous_id_mapping_logic(synthetic_coco_json):
+    """Verify mathematical logic of Detectron2 category_id contiguous remapping."""
+    with open(synthetic_coco_json, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    cat_ids = sorted([c["id"] for c in data["categories"]])
+    # Standard COCO 1-indexed IDs: [1, 2, 3]
+    assert cat_ids == [1, 2, 3]
+
+    # Detectron2 mapping logic
+    id_map = {v: i for i, v in enumerate(cat_ids)}
+    assert id_map == {1: 0, 2: 1, 3: 2}
+
+    remapped_ids = [id_map[ann["category_id"]] for ann in data["annotations"]]
+    num_classes = len(cat_ids)
+
+    # Must be 0-indexed and strictly less than num_classes
+    assert max(remapped_ids) < num_classes
+    assert min(remapped_ids) >= 0
+    assert set(remapped_ids).issubset({0, 1, 2})
+

@@ -80,21 +80,27 @@ def register_mammo_dataset(
     thing_classes = get_classes_from_json(train_json)
 
     for name, json_path in [(train_name, train_json), (val_name, val_json)]:
-        if name in DatasetCatalog:
-            logger.info(f"Dataset '{name}' already registered — skipping.")
-            continue
+        # Safely unregister if previously registered (allows switching dataset JSON in same session)
+        if DatasetCatalog is not None:
+            if hasattr(DatasetCatalog, "_REGISTERED"):
+                DatasetCatalog._REGISTERED.pop(name, None)
+        if MetadataCatalog is not None:
+            if hasattr(MetadataCatalog, "_REGISTERED"):
+                MetadataCatalog._REGISTERED.pop(name, None)
 
-        DatasetCatalog.register(
-            name,
-            lambda j=json_path, d=images_dir: load_coco_json(j, d),
-        )
-        MetadataCatalog.get(name).set(
-            thing_classes=thing_classes,
-            num_classes=len(thing_classes),
-            json_file=json_path,
-            image_root=images_dir,
-            evaluator_type="coco",
-        )
+        if DatasetCatalog is not None and load_coco_json is not None:
+            DatasetCatalog.register(
+                name,
+                lambda j=json_path, d=images_dir, n=name: load_coco_json(j, d, n),
+            )
+            MetadataCatalog.get(name).set(
+                thing_classes=thing_classes,
+                num_classes=len(thing_classes),
+                json_file=json_path,
+                image_root=images_dir,
+                evaluator_type="coco",
+            )
         logger.info(f"Registered '{name}' — {len(thing_classes)} class(es): {thing_classes}")
 
     return thing_classes
+
