@@ -198,11 +198,12 @@ def do_train(args, cfg):
     model.to(cfg.train.device)
     model = create_ddp_model(model)
 
-    if hasattr(cfg.optimizer, "params") and hasattr(cfg.optimizer.params, "model"):
+    if hasattr(cfg.optimizer, "params"):
         cfg.optimizer.params.model = model
-        optimizer = instantiate(cfg.optimizer)
     else:
-        optimizer = instantiate(cfg.optimizer, params=model.parameters())
+        cfg.optimizer.params = model.parameters()
+    optimizer = instantiate(cfg.optimizer)
+
     train_loader = instantiate(cfg.dataloader.train)
 
     # Determine mixed precision dtype
