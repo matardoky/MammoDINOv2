@@ -281,13 +281,20 @@ optimizer = L(torch.optim.AdamW)(
 
 # ─── LR Scheduler ─────────────────────────────────────────────────────────────
 
-# 7200 total iterations, warmup 500 steps, decay by 10x at 5760 steps (80%)
+# 20 epochs × 2835 iters/epoch (5669 images / batch_size 2) = 56 700 iters total
+# Warmup : 1 epoch (2835 iters = 5 % du total)
+# Decay LR ×10 à l'epoch 16 (80 % = 45 360 iters)
+_ITERS_PER_EPOCH = 2835    # ceil(5669 / 2)
+_MAX_ITER        = 56_700  # 20 epochs
+_WARMUP_ITERS    = _ITERS_PER_EPOCH        # 1 epoch de warmup
+_LR_DECAY_ITER   = 16 * _ITERS_PER_EPOCH  # epoch 16 → 45 360
+
 lr_multiplier = L(WarmupParamScheduler)(
     scheduler=L(MultiStepParamScheduler)(
         values=[1.0, 0.1],
-        milestones=[5760, 7200],
+        milestones=[_LR_DECAY_ITER, _MAX_ITER],
     ),
-    warmup_length=500 / 7200,
+    warmup_length=_WARMUP_ITERS / _MAX_ITER,  # 0.05  (5 %)
     warmup_method="linear",
     warmup_factor=0.001,
 )
@@ -298,12 +305,12 @@ lr_multiplier = L(WarmupParamScheduler)(
 train = dict(
     output_dir="./output",
     init_checkpoint="",
-    max_iter=7200,
-    eval_period=600,
+    max_iter=_MAX_ITER,                         # 56 700  (20 epochs)
+    eval_period=_ITERS_PER_EPOCH,               # évaluation toutes les epochs
     log_period=20,
     device="cuda",
-    grad_accum_steps=8,  # Effective batch size = total_batch_size (2) * 8 = 16
-    checkpointer=dict(period=600, max_to_keep=5),
+    grad_accum_steps=8,  # Effective batch size = total_batch_size (2) × 8 = 16
+    checkpointer=dict(period=_ITERS_PER_EPOCH, max_to_keep=5),  # checkpoint / epoch
     clip_grad=dict(
         enabled=True,
         params=dict(
