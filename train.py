@@ -36,6 +36,9 @@ warnings.filterwarnings("ignore", category=FutureWarning, module=r".*timm\.model
 warnings.filterwarnings("ignore", category=FutureWarning, module=r".*detectron2\.layers\.dcn_v3.*")
 warnings.filterwarnings("ignore", category=FutureWarning, message=r".*torch\.cuda\.amp\.custom_.*")
 warnings.filterwarnings("ignore", category=UserWarning, message=r".*pkg_resources is deprecated.*")
+# Suppress detectron2 LR scheduler ordering warning (expected with gradient accumulation:
+# the LRScheduler hook steps every iter, but optimizer.step() only fires every accum_steps).
+warnings.filterwarnings("ignore", category=UserWarning, message=r".*lr_scheduler\.step\(\).*before.*optimizer\.step\(\).*")
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
