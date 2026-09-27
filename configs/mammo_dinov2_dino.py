@@ -286,7 +286,7 @@ optimizer = L(torch.optim.AdamW)(
 # Decay LR ×10 à l'epoch 16 (80 % = 45 360 iters)
 _ITERS_PER_EPOCH = 2835    # ceil(5669 / 2)
 _MAX_ITER        = 56_700  # 20 epochs
-_WARMUP_ITERS    = _ITERS_PER_EPOCH        # 1 epoch de warmup
+_WARMUP_ITERS    = int(_MAX_ITER * 0.02)   # 2 % → 1 134 iters
 _LR_DECAY_ITER   = 16 * _ITERS_PER_EPOCH  # epoch 16 → 45 360
 
 lr_multiplier = L(WarmupParamScheduler)(
