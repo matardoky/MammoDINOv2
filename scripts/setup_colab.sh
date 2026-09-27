@@ -42,6 +42,11 @@ if [ ! -d "detrex" ]; then
     git clone https://github.com/IDEA-Research/detrex.git
 fi
 
+# Patch Detrex MSDeformAttn to support bfloat16 and float16 mixed precision
+sed -i 's/value\.dtype==torch\.float16/value.dtype in (torch.float16, torch.bfloat16)/g' detrex/detrex/layers/multi_scale_deform_attn.py 2>/dev/null || true
+sed -i 's/output=output\.to(torch\.float16)/output=output.to(value.dtype)/g' detrex/detrex/layers/multi_scale_deform_attn.py 2>/dev/null || true
+
+
 echo "Compiling Detrex CUDA extensions (MSDeformAttn)..."
 cd detrex
 rm -rf build/ detrex/_C*.so detrex.egg-info

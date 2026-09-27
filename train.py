@@ -54,8 +54,10 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils import comm
 
 from rfdetr.data.registration import register_mammo_dataset
+from rfdetr.utils.amp_patch import patch_detrex_ms_deform_attn, patch_detrex_source_file
 
 logger = logging.getLogger("mammo_train")
+
 
 
 # ─── Detrex Trainer with Gradient Accumulation & AMP bf16/fp16 ───────────────
@@ -104,8 +106,11 @@ class Trainer(SimpleTrainer):
         self.grad_scaler = None
         if amp and (self.amp_dtype == torch.float16):
             if grad_scaler is None:
-                from torch.cuda.amp import GradScaler
-                grad_scaler = GradScaler()
+                if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
+                    grad_scaler = torch.amp.GradScaler("cuda")
+                else:
+                    from torch.cuda.amp import GradScaler
+                    grad_scaler = GradScaler()
             self.grad_scaler = grad_scaler
 
     def _should_step(self) -> bool:
@@ -206,19 +211,13 @@ def do_train(args, cfg):
 
     train_loader = instantiate(cfg.dataloader.train)
 
-    # Determine mixed precision dtype
+    # Determine mixed precision dtype (Detrex DINO canonical is float16 with GradScaler)
     amp_enabled = cfg.train.amp.enabled and (device == "cuda")
-    amp_dtype_str = getattr(args, "amp_dtype", None) or cfg.train.amp.get("dtype", "auto")
-    if amp_dtype_str == "auto":
-        amp_dtype = (
-            torch.bfloat16
-            if (torch.cuda.is_available() and torch.cuda.is_bf16_supported())
-            else torch.float16
-        )
+    amp_dtype_str = getattr(args, "amp_dtype", None) or cfg.train.amp.get("dtype", "float16")
+    if amp_dtype_str in ("auto", "float16"):
+        amp_dtype = torch.float16
     elif amp_dtype_str == "bfloat16":
         amp_dtype = torch.bfloat16
-    elif amp_dtype_str == "float16":
-        amp_dtype = torch.float16
     else:
         amp_dtype = torch.float32
 
@@ -343,8 +342,8 @@ def build_arg_parser():
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to DINOv2 checkpoint .pth")
     parser.add_argument("--accum-steps",     type=int, default=None,
                         help="Gradient accumulation steps (default: from config or 1)")
-    parser.add_argument("--amp-dtype",       choices=["auto", "bfloat16", "float16", "float32"], default="auto",
-                        help="Mixed precision dtype: auto (bf16 if supported, else fp16), bfloat16, float16 (default: auto)")
+    parser.add_argument("--amp-dtype",       choices=["auto", "bfloat16", "float16", "float32"], default="float16",
+                        help="Mixed precision dtype: float16 (default, Detrex standard), bfloat16, float32, or auto")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
     return parser
@@ -354,6 +353,10 @@ def main(args):
     # Insert detrex into path (may differ from default)
     if args.detrex_root not in sys.path:
         sys.path.insert(0, args.detrex_root)
+
+    # Patch Detrex MultiScaleDeformableAttn to ensure seamless fp16/bf16 CUDA execution
+    patch_detrex_source_file(args.detrex_root)
+    patch_detrex_ms_deform_attn()
 
     # Register mammography datasets and auto-detect classes from JSON
     thing_classes = register_mammo_dataset(
