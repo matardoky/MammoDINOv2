@@ -134,6 +134,11 @@ model = L(DINO)(
             return_intermediate=True,
             num_feature_levels=4,
         ),
+        # CRITICAL: must match num_queries in DINO (default is 900 → mismatch with attn_mask).
+        # prepare_for_cdn builds attn_mask of size (dn_pad + num_queries, …) but the decoder
+        # actually receives (dn_pad + two_stage_num_proposals, …) queries from the encoder.
+        # Setting them equal eliminates the RuntimeError: attn_mask shape mismatch.
+        two_stage_num_proposals=50,
     ),
 
     # ── Criterion (detrex-native) ─────────────────────────────────────────────
