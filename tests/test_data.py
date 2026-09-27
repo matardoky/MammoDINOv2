@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 import torch
 
-from rfdetr.data.mapper import Mammo16BitMapper
+from rfdetr.data.mapper import Mammo16BitMapper, normalize_with_percentiles
 from rfdetr.data.registration import get_classes_from_json
 from rfdetr.utils.visualize import read_mammo_uint8
 
@@ -117,29 +117,31 @@ def test_get_classes_from_json_empty_categories(tmp_dir):
 # ─── 2. Mammo16BitMapper Image Reading & Normalization ───────────────────────
 
 def test_mammo_mapper_uint16_normalization(synthetic_uint16_image):
-    """Verify 16-bit uint16 image is converted to 8-bit RGB with correct shape."""
+    """Verify 16-bit uint16 image is converted to float32 RGB in [0.0, 1.0] without quantization."""
     mapper = Mammo16BitMapper(augmentation=[], is_train=False)
     img_rgb = mapper._read_image(synthetic_uint16_image)
 
     assert isinstance(img_rgb, np.ndarray)
-    assert img_rgb.dtype == np.uint8
+    assert img_rgb.dtype == np.float32
     assert img_rgb.shape == (512, 512, 3)
     # Check that grayscale is replicated identically across RGB channels
     assert np.array_equal(img_rgb[:, :, 0], img_rgb[:, :, 1])
     assert np.array_equal(img_rgb[:, :, 1], img_rgb[:, :, 2])
-    # Check intensity range is utilized
-    assert img_rgb.min() == 0
-    assert img_rgb.max() == 255
+    # Check intensity range is within [0.0, 1.0]
+    assert 0.0 <= img_rgb.min()
+    assert img_rgb.max() <= 1.0
+    assert img_rgb.max() > 0.5
 
 
 def test_mammo_mapper_uint8_support(synthetic_uint8_image):
-    """Verify standard 8-bit grayscale image is properly converted to 3-channel RGB."""
+    """Verify standard 8-bit grayscale image is properly converted to 3-channel float32 RGB in [0.0, 1.0]."""
     mapper = Mammo16BitMapper(augmentation=[], is_train=False)
     img_rgb = mapper._read_image(synthetic_uint8_image)
 
-    assert img_rgb.dtype == np.uint8
+    assert img_rgb.dtype == np.float32
     assert img_rgb.shape == (256, 256, 3)
     assert np.array_equal(img_rgb[:, :, 0], img_rgb[:, :, 1])
+    assert 0.0 <= img_rgb.min() <= img_rgb.max() <= 1.0
 
 
 def test_mammo_mapper_constant_image_protection(synthetic_flat_image):
@@ -147,10 +149,28 @@ def test_mammo_mapper_constant_image_protection(synthetic_flat_image):
     mapper = Mammo16BitMapper(augmentation=[], is_train=False)
     img_rgb = mapper._read_image(synthetic_flat_image)
 
-    assert img_rgb.dtype == np.uint8
+    assert img_rgb.dtype == np.float32
     assert not np.isnan(img_rgb).any()
     assert not np.isinf(img_rgb).any()
     assert img_rgb.shape == (128, 128, 3)
+
+
+def test_normalize_with_percentiles_foreground_filter():
+    """Verify normalize_with_percentiles filters out background air (pixels == 0)."""
+    # 70% black background (0), 30% breast tissue (values 10000 to 50000)
+    arr = np.zeros((300, 300), dtype=np.uint16)
+    arr[100:250, 100:250] = np.linspace(10000, 50000, 150 * 150, dtype=np.uint16).reshape((150, 150))
+
+    norm = normalize_with_percentiles(arr, low_pct=1.0, high_pct=99.0)
+    assert norm.dtype == np.float32
+    assert norm.shape == (300, 300)
+    # Background remains 0.0
+    assert norm[0, 0] == 0.0
+    # Foreground pixels are normalized into [0.0, 1.0]
+    fg_norm = norm[100:250, 100:250]
+    assert fg_norm.min() >= 0.0
+    assert fg_norm.max() <= 1.0
+    assert fg_norm.max() > 0.9
 
 
 # ─── 3. Path Resolution & Fallback ───────────────────────────────────────────

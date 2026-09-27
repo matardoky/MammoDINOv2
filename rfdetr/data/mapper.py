@@ -31,17 +31,43 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def normalize_with_percentiles(
+    img_16bit: np.ndarray,
+    low_pct: float = 1.0,
+    high_pct: float = 99.0,
+) -> np.ndarray:
+    """Normalize 16-bit mammography image using foreground percentiles.
+
+    Filters out black background air (pixels == 0) so percentiles reflect
+    actual breast parenchyma. Returns float32 array in [0.0, 1.0].
+    """
+    if img_16bit is None or img_16bit.size == 0:
+        return np.zeros_like(img_16bit, dtype=np.float32)
+    h, w = img_16bit.shape[:2]
+    step = max(1, min(h, w) // 300)
+    sample = img_16bit[::step, ::step]
+    fg = sample[sample > 0]
+    target = fg if len(fg) >= 1000 else img_16bit[img_16bit > 0]
+    if len(target) == 0:
+        return np.zeros_like(img_16bit, dtype=np.float32)
+    p_low, p_high = np.percentile(target, (low_pct, high_pct))
+    if p_high <= p_low:
+        return np.zeros_like(img_16bit, dtype=np.float32)
+    return np.clip((img_16bit.astype(np.float32) - p_low) / (p_high - p_low), 0.0, 1.0).astype(np.float32)
+
+
 class Mammo16BitMapper:
     """Dataset mapper for 16-bit mammography images (DICOM-exported PNG/TIF).
 
     Follows the same interface as DetrDatasetMapper:
       - Takes a detectron2 dataset dict
-      - Returns a dict with 'image' (C, H, W) tensor and 'instances'
+      - Returns a dict with 'image' (C, H, W) float32 tensor in [0.0, 1.0] and 'instances'
 
     Differences from the standard mapper:
       - Reads uint16 images via OpenCV (IMREAD_UNCHANGED)
-      - Applies percentile intensity windowing before augmentation
+      - Applies foreground percentile intensity windowing before augmentation
       - Replicates grayscale to 3 channels for DINOv2 backbone
+      - Outputs float32 [0.0, 1.0] preserving full 16-bit dynamic range
 
     Args:
         augmentation: List of detectron2 augmentation transforms.
@@ -51,6 +77,7 @@ class Mammo16BitMapper:
         low_pct: Lower percentile for intensity windowing (default: 1.0).
         high_pct: Upper percentile for intensity windowing (default: 99.0).
         images_fallback_dir: Optional directory to search if file_name not found.
+        use_percentile_norm: Whether to use foreground percentile normalization (default: True).
     """
 
     def __init__(
@@ -62,6 +89,7 @@ class Mammo16BitMapper:
         low_pct: float = 1.0,
         high_pct: float = 99.0,
         images_fallback_dir: Optional[str] = None,
+        use_percentile_norm: bool = True,
     ) -> None:
         self.augmentation = augmentation
         self.augmentation_with_crop = augmentation_with_crop
@@ -70,6 +98,7 @@ class Mammo16BitMapper:
         self.low_pct = low_pct
         self.high_pct = high_pct
         self.images_fallback_dir = images_fallback_dir
+        self.use_percentile_norm = use_percentile_norm
 
     def _resolve_path(self, file_name: str) -> str:
         if os.path.isfile(file_name):
@@ -81,24 +110,28 @@ class Mammo16BitMapper:
         raise FileNotFoundError(f"Image not found: {file_name}")
 
     def _read_image(self, file_name: str) -> np.ndarray:
-        """Read uint16 image → percentile normalization → uint8 RGB (H, W, 3)."""
+        """Read 16-bit or 8-bit image -> float32 RGB (H, W, 3) in [0.0, 1.0]."""
         path = self._resolve_path(file_name)
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
             raise IOError(f"OpenCV could not read: {path}")
 
-        if img.ndim == 3:
-            # Already multi-channel (8-bit) — standard BGR→RGB
-            return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if img.dtype == np.uint16:
+            if self.use_percentile_norm:
+                img = normalize_with_percentiles(img, low_pct=self.low_pct, high_pct=self.high_pct)
+            else:
+                img = img.astype(np.float32) / 65535.0
+        else:
+            img = img.astype(np.float32) / 255.0
 
-        # Grayscale uint8 or uint16 — percentile windowing
-        lo = float(np.percentile(img, self.low_pct))
-        hi = float(np.percentile(img, self.high_pct))
-        if hi <= lo:
-            hi = lo + 1.0
-        img_norm = np.clip((img.astype(np.float32) - lo) / (hi - lo), 0.0, 1.0)
-        img_u8 = (img_norm * 255).astype(np.uint8)
-        return np.stack([img_u8, img_u8, img_u8], axis=-1)  # (H, W, 3) uint8
+        if img.ndim == 2:
+            img = np.stack([img] * 3, axis=-1)
+        elif img.shape[2] == 1:
+            img = np.repeat(img, 3, axis=2)
+        elif img.shape[2] == 3 and img.dtype != np.float32:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
+        return img.astype(np.float32)
 
     def __call__(self, dataset_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if utils is None or T is None:

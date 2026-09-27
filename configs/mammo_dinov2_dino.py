@@ -168,9 +168,9 @@ model = L(DINO)(
     dn_number=6,
     label_noise_ratio=0.5,
     box_noise_scale=1.0,
-    # Mammography-specific normalization (grayscale replicated to 3 channels)
-    pixel_mean=[77.76, 77.76, 77.76],   # 0.3051 * 255
-    pixel_std=[67.76, 67.76, 67.76],    # 0.2658 * 255
+    # Mammography-specific normalization for float32 [0.0, 1.0] image tensors
+    pixel_mean=[0.3192, 0.3192, 0.3192],
+    pixel_std=[0.2603, 0.2603, 0.2603],
     device="cuda",
     select_box_nums_for_evaluation=50,
 )

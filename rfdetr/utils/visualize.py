@@ -52,7 +52,13 @@ def read_mammo_uint8(
         # Already multi-channel BGR 8-bit
         return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    # Grayscale — percentile normalization
+    # Grayscale — foreground percentile normalization
+    if img.dtype == np.uint16:
+        from rfdetr.data.mapper import normalize_with_percentiles
+        img_norm = normalize_with_percentiles(img, low_pct=low_pct, high_pct=high_pct)
+        img_u8 = (img_norm * 255).astype(np.uint8)
+        return np.stack([img_u8, img_u8, img_u8], axis=-1)
+
     lo = float(np.percentile(img, low_pct))
     hi = float(np.percentile(img, high_pct))
     if hi <= lo:
