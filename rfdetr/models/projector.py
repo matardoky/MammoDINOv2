@@ -16,9 +16,18 @@ import torch.nn.functional as F
 
 try:
     from detectron2.layers import ShapeSpec
+    from detectron2.modeling.backbone import Backbone
 except ImportError:
     from dataclasses import dataclass
     from typing import Optional as _Optional
+
+    class Backbone(nn.Module):  # type: ignore[no-redef]
+        """Minimal Backbone stub when detectron2 is not installed."""
+        def output_shape(self):
+            return {}
+        @property
+        def size_divisibility(self) -> int:
+            return 0
 
     @dataclass
     class ShapeSpec:  # type: ignore[no-redef]
@@ -299,7 +308,7 @@ class MultiScaleProjector(nn.Module):
         return results
 
 
-class BackboneProjectorWrapper(nn.Module):
+class BackboneProjectorWrapper(Backbone):
     """Composite module encapsulating DINOv2MultiScaleBackbone and MultiScaleProjector.
 
     Implements output_shape() and size_divisibility interfaces for full Detectron2 compatibility.

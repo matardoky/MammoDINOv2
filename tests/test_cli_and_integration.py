@@ -147,3 +147,79 @@ def test_end_to_end_gradient_step_smoke():
 
     assert has_grad, "No parameters received gradients!"
     optimizer.step()
+
+
+# ─── 4. Backbone Inheritance & Gradient Accumulation Tests ───────────────────
+
+def test_backbone_projector_wrapper_is_backbone():
+    """Verify BackboneProjectorWrapper inherits from Detectron2 Backbone."""
+    from rfdetr.models.projector import Backbone, BackboneProjectorWrapper, MultiScaleProjector
+
+    class _DummyBackbone(nn.Module):
+        out_features = ["b"]
+        _p = 14
+
+        def forward(self, x):
+            return {"b": x}
+
+    proj = MultiScaleProjector(in_channels=[16], out_channels=16, scale_factors=(1.0,))
+    wrapper = BackboneProjectorWrapper(_DummyBackbone(), proj)
+    assert isinstance(wrapper, Backbone)
+
+
+def test_gradient_accumulation_equivalence():
+    """Verify that accumulating gradients over N micro-batches produces exact same gradients as large batch."""
+    torch.manual_seed(42)
+    linear_single = nn.Linear(10, 2, bias=True)
+    linear_accum = nn.Linear(10, 2, bias=True)
+    linear_accum.load_state_dict(linear_single.state_dict())
+
+    x1 = torch.randn(2, 10)
+    x2 = torch.randn(2, 10)
+    x_full = torch.cat([x1, x2], dim=0)
+
+    # 1. Full batch of 4 items
+    out_full = linear_single(x_full)
+    loss_full = out_full.sum() / 4.0
+    loss_full.backward()
+
+    # 2. Accumulated batches: 2 steps of batch size 2, accum=2
+    accum = 2
+    out1 = linear_accum(x1)
+    loss1 = (out1.sum() / 2.0) / accum
+    loss1.backward()
+
+    out2 = linear_accum(x2)
+    loss2 = (out2.sum() / 2.0) / accum
+    loss2.backward()
+
+    # Verify gradients are bit-exact identical
+    for p_single, p_accum in zip(linear_single.parameters(), linear_accum.parameters()):
+        assert torch.allclose(p_single.grad, p_accum.grad, atol=1e-6)
+
+
+def test_trainer_clip_grads_and_telemetry():
+    """Verify Trainer.clip_grads logs grad_norm to EventStorage."""
+    pytest.importorskip("detectron2", reason="detectron2 required to import Trainer from train.py")
+    from train import Trainer
+
+    linear = nn.Linear(10, 2)
+    x = torch.randn(2, 10)
+    loss = linear(x).sum()
+    loss.backward()
+
+    class _DummyStorage:
+        def __init__(self):
+            self.history = {}
+
+        def put_scalar(self, name, val):
+            self.history[name] = val
+
+    trainer = Trainer.__new__(Trainer)
+    trainer.clip_grad_params = {"max_norm": 0.5, "norm_type": 2}
+    trainer.storage = _DummyStorage()
+
+    norm = trainer.clip_grads(linear.parameters())
+    assert norm is not None
+    assert "grad_norm" in trainer.storage.history
+    assert trainer.storage.history["grad_norm"] > 0

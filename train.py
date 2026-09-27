@@ -52,9 +52,9 @@ from rfdetr.data.registration import register_mammo_dataset
 logger = logging.getLogger("mammo_train")
 
 
-# ─── Detrex Trainer (copied from detrex/tools/train_net.py) ──────────────────
-# We use it verbatim — this is detrex code, not a reimplementation.
+# ─── Detrex Trainer with Gradient Accumulation & AMP bf16/fp16 ───────────────
 
+from contextlib import nullcontext
 import time
 import torch
 from torch.nn.parallel import DataParallel, DistributedDataParallel
@@ -62,22 +62,62 @@ from detectron2.engine import SimpleTrainer
 
 
 class Trainer(SimpleTrainer):
-    """Combines SimpleTrainer + AMP, adapted from detrex/tools/train_net.py."""
+    """Combines SimpleTrainer + AMP (bf16/fp16) + Gradient Accumulation + Grad Norm Logging.
 
-    def __init__(self, model, dataloader, optimizer, amp=False,
-                 clip_grad_params=None, grad_scaler=None):
+    Adapted from detrex/tools/train_net.py with single-GPU and Colab optimizations:
+      - Gradient accumulation over N batches (effective batch size = physical batch * N).
+      - bfloat16 native execution without unnecessary GradScaler.
+      - float16 execution with GradScaler when bfloat16 is unsupported.
+      - Logging of the true L2 gradient norm to EventStorage/TensorBoard.
+    """
+
+    def __init__(
+        self,
+        model,
+        dataloader,
+        optimizer,
+        amp: bool = False,
+        amp_dtype: torch.dtype = torch.float16,
+        clip_grad_params: Optional[dict] = None,
+        grad_scaler=None,
+        grad_accum_steps: int = 1,
+    ):
         super().__init__(model=model, data_loader=dataloader, optimizer=optimizer)
         unsupported = "AMPTrainer does not support single-process multi-device training!"
         if isinstance(model, DistributedDataParallel):
             assert not (model.device_ids and len(model.device_ids) > 1), unsupported
         assert not isinstance(model, DataParallel), unsupported
-        if amp:
+
+        self.amp = amp
+        self.amp_dtype = amp_dtype
+        self.clip_grad_params = clip_grad_params
+        self.grad_accum_steps = max(1, int(grad_accum_steps))
+
+        # GradScaler is ONLY required for float16 to prevent underflow.
+        # bfloat16 shares the 8-bit exponent of float32 and does not need scaling.
+        self.grad_scaler = None
+        if amp and (self.amp_dtype == torch.float16):
             if grad_scaler is None:
                 from torch.cuda.amp import GradScaler
                 grad_scaler = GradScaler()
-        self.grad_scaler = grad_scaler
-        self.amp = amp
-        self.clip_grad_params = clip_grad_params
+            self.grad_scaler = grad_scaler
+
+    def _should_step(self) -> bool:
+        """Step optimizer every grad_accum_steps or at the final iteration."""
+        it = self.iter + 1
+        max_iter = getattr(self, "max_iter", None)
+        if max_iter is not None and it >= max_iter:
+            return True
+        return it % self.grad_accum_steps == 0
+
+    def clip_grads(self, params) -> Optional[torch.Tensor]:
+        params = [p for p in params if p.requires_grad and p.grad is not None]
+        if params and self.clip_grad_params is not None:
+            norm = torch.nn.utils.clip_grad_norm_(params, **self.clip_grad_params)
+            if hasattr(self, "storage") and self.storage is not None:
+                self.storage.put_scalar("grad_norm", norm.item())
+            return norm
+        return None
 
     def run_step(self):
         assert self.model.training
@@ -85,29 +125,58 @@ class Trainer(SimpleTrainer):
         data = next(self._data_loader_iter)
         data_time = time.perf_counter() - start
 
-        with torch.cuda.amp.autocast(enabled=self.amp):
+        accum = self.grad_accum_steps
+        do_step = self._should_step()
+
+        # Context manager for autocast
+        autocast_ctx = (
+            torch.amp.autocast("cuda", dtype=self.amp_dtype)
+            if (self.amp and torch.cuda.is_available())
+            else nullcontext()
+        )
+
+        with autocast_ctx:
             loss_dict = self.model(data)
-            losses = sum(loss_dict.values())
+            if isinstance(loss_dict, torch.Tensor):
+                loss_dict = {"total_loss": loss_dict}
+            losses = sum(loss_dict.values()) / accum
 
-        self.optimizer.zero_grad()
-        if self.amp:
+        if self.grad_scaler is not None:
+            # float16 with loss scaler
             self.grad_scaler.scale(losses).backward()
-            if self.clip_grad_params:
-                self.grad_scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), **self.clip_grad_params
-                )
-            self.grad_scaler.step(self.optimizer)
-            self.grad_scaler.update()
+            if do_step:
+                if self.clip_grad_params:
+                    self.grad_scaler.unscale_(self.optimizer)
+                    self.clip_grads(self.model.parameters())
+                self.grad_scaler.step(self.optimizer)
+                self.grad_scaler.update()
+                self.optimizer.zero_grad()
         else:
+            # bfloat16 or float32 (no scaler needed)
             losses.backward()
-            if self.clip_grad_params:
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), **self.clip_grad_params
-                )
-            self.optimizer.step()
+            if do_step:
+                if self.clip_grad_params:
+                    self.clip_grads(self.model.parameters())
+                self.optimizer.step()
+                self.optimizer.zero_grad()
 
-        self._write_metrics(loss_dict, data_time)
+        # Write true unscaled micro-batch losses for dashboard logging
+        loss_log = {
+            k: (v.detach() * accum if isinstance(v, torch.Tensor) else v)
+            for k, v in loss_dict.items()
+        }
+        self._write_metrics(loss_log, data_time)
+
+    def state_dict(self):
+        ret = super().state_dict()
+        if self.grad_scaler is not None:
+            ret["grad_scaler"] = self.grad_scaler.state_dict()
+        return ret
+
+    def load_state_dict(self, sd):
+        super().load_state_dict(sd)
+        if self.grad_scaler is not None and "grad_scaler" in sd:
+            self.grad_scaler.load_state_dict(sd["grad_scaler"])
 
 
 # ─── Training Logic ────────────────────────────────────────────────────────────
@@ -130,12 +199,37 @@ def do_train(args, cfg):
         optimizer = instantiate(cfg.optimizer, params=model.parameters())
     train_loader = instantiate(cfg.dataloader.train)
 
+    # Determine mixed precision dtype
+    amp_enabled = cfg.train.amp.enabled and (device == "cuda")
+    amp_dtype_str = getattr(args, "amp_dtype", None) or cfg.train.amp.get("dtype", "auto")
+    if amp_dtype_str == "auto":
+        amp_dtype = (
+            torch.bfloat16
+            if (torch.cuda.is_available() and torch.cuda.is_bf16_supported())
+            else torch.float16
+        )
+    elif amp_dtype_str == "bfloat16":
+        amp_dtype = torch.bfloat16
+    elif amp_dtype_str == "float16":
+        amp_dtype = torch.float16
+    else:
+        amp_dtype = torch.float32
+
+    # Determine gradient accumulation steps (CLI flag overrides config)
+    grad_accum_steps = (
+        getattr(args, "accum_steps", None)
+        if getattr(args, "accum_steps", None) is not None
+        else cfg.train.get("grad_accum_steps", 1)
+    )
+
     trainer = Trainer(
         model=model,
         dataloader=train_loader,
         optimizer=optimizer,
-        amp=cfg.train.amp.enabled and (device == "cuda"),
+        amp=amp_enabled,
+        amp_dtype=amp_dtype,
         clip_grad_params=cfg.train.get("clip_grad", {}).get("params", None),
+        grad_accum_steps=grad_accum_steps,
     )
 
     lr_scheduler = instantiate(cfg.lr_multiplier)
@@ -236,6 +330,10 @@ def build_arg_parser():
     parser.add_argument("--val-json",        required=True, help="Path to COCO val JSON")
     parser.add_argument("--images-dir",      required=True, help="Root directory for images")
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to DINOv2 checkpoint .pth")
+    parser.add_argument("--accum-steps",     type=int, default=None,
+                        help="Gradient accumulation steps (default: from config or 1)")
+    parser.add_argument("--amp-dtype",       choices=["auto", "bfloat16", "float16", "float32"], default="auto",
+                        help="Mixed precision dtype: auto (bf16 if supported, else fp16), bfloat16, float16 (default: auto)")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
     return parser

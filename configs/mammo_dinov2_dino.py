@@ -295,7 +295,11 @@ train = dict(
     eval_period=600,
     log_period=20,
     device="cuda",
-    amp=dict(enabled=True),
+    amp=dict(
+        enabled=True,
+        dtype="auto",  # auto: detects bf16 support (A100/L4), falls back to fp16 (T4/V100)
+    ),
+    grad_accum_steps=8,  # Effective batch size = total_batch_size (2) * 8 = 16
     checkpointer=dict(period=600, max_to_keep=5),
     clip_grad=dict(
         enabled=True,
