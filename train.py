@@ -28,6 +28,8 @@ import argparse
 import logging
 import os
 import sys
+from typing import Any, Dict, List, Optional
+
 
 # Ensure detrex projects are importable (set DETREX_ROOT env var or pass --detrex-root)
 _local_detrex = os.path.join(os.path.dirname(os.path.abspath(__file__)), "detrex")
