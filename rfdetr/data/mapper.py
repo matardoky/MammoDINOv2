@@ -90,9 +90,11 @@ class Mammo16BitMapper:
         high_pct: float = 99.0,
         images_fallback_dir: Optional[str] = None,
         use_percentile_norm: bool = True,
+        crop_prob: float = 0.2,
     ) -> None:
         self.augmentation = augmentation
         self.augmentation_with_crop = augmentation_with_crop
+        self.crop_prob = float(crop_prob)
         self.is_train = is_train
         self.mask_on = mask_on
         self.low_pct = low_pct
@@ -140,10 +142,15 @@ class Mammo16BitMapper:
         image = self._read_image(dataset_dict["file_name"])
         utils.check_image_size(dataset_dict, image)
 
-        if self.augmentation_with_crop is None or np.random.rand() > 0.5:
-            image, transforms = T.apply_transform_gens(self.augmentation, image)
-        else:
+        do_crop = (
+            self.augmentation_with_crop is not None
+            and self.crop_prob > 0.0
+            and float(torch.rand(1).item()) < self.crop_prob
+        )
+        if do_crop:
             image, transforms = T.apply_transform_gens(self.augmentation_with_crop, image)
+        else:
+            image, transforms = T.apply_transform_gens(self.augmentation, image)
 
         image_shape = image.shape[:2]  # (H, W)
         dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))

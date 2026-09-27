@@ -256,3 +256,22 @@ def test_repeat_factors_imbalance_ratio():
     expected_factor = (0.15 / 0.07) ** 0.5
     assert abs(arch_dist_factor - expected_factor) < 1e-4
     assert arch_dist_factor > 1.40
+
+
+def test_crop_prob_configuration():
+    """Verify crop_prob parameter properly controls augmentation choice."""
+    mapper_no_crop = Mammo16BitMapper(
+        augmentation=[],
+        augmentation_with_crop=[],
+        crop_prob=0.0,
+        is_train=False,
+    )
+    assert mapper_no_crop.crop_prob == 0.0
+
+    mapper_with_crop = Mammo16BitMapper(
+        augmentation=[],
+        augmentation_with_crop=[],
+        crop_prob=0.2,
+        is_train=False,
+    )
+    assert mapper_with_crop.crop_prob == 0.2
