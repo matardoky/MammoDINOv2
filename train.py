@@ -382,8 +382,15 @@ def main(args):
         cfg.train.output_dir = "./output"
     os.makedirs(cfg.train.output_dir, exist_ok=True)
 
+    # Inject images fallback dir into mappers
+    if hasattr(cfg, "dataloader"):
+        if hasattr(cfg.dataloader, "train") and hasattr(cfg.dataloader.train, "mapper"):
+            cfg.dataloader.train.mapper.images_fallback_dir = args.images_dir
+        if hasattr(cfg.dataloader, "test") and hasattr(cfg.dataloader.test, "mapper"):
+            cfg.dataloader.test.mapper.images_fallback_dir = args.images_dir
 
     default_setup(cfg, args)
+
 
     if args.eval_only:
         model = instantiate(cfg.model)
