@@ -36,7 +36,9 @@ def test_train_cli_help():
     assert "--val-json" in stdout
     assert "--images-dir" in stdout
     assert "--dinov2-weights" in stdout
+    assert "--output-dir" in stdout
     assert "--config-file" in stdout
+
 
 
 def test_eval_cli_help():

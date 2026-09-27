@@ -332,6 +332,7 @@ def do_eval(cfg, model):
 
 def build_arg_parser():
     parser = default_argument_parser()
+    parser.add_argument("--output-dir",      default=None,  help="Path to output directory for checkpoints and logs")
     parser.add_argument("--train-json",      required=True, help="Path to COCO train JSON")
     parser.add_argument("--val-json",        required=True, help="Path to COCO val JSON")
     parser.add_argument("--images-dir",      required=True, help="Root directory for images")
@@ -374,9 +375,12 @@ def main(args):
         cfg.model.backbone.backbone.checkpoint_path = args.dinov2_weights
 
     # Inject output dir
-    if not cfg.train.get("output_dir"):
+    if getattr(args, "output_dir", None):
+        cfg.train.output_dir = args.output_dir
+    elif not cfg.train.get("output_dir"):
         cfg.train.output_dir = "./output"
     os.makedirs(cfg.train.output_dir, exist_ok=True)
+
 
     default_setup(cfg, args)
 
