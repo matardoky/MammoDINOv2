@@ -13,7 +13,12 @@ What comes from detectron2/detrex (used directly, not reimplemented):
   - COCOEvaluator (via detectron2.evaluation)
 """
 
-from rfdetr.data.mapper import Mammo16BitMapper
+from rfdetr.data.mapper import LesionAwareCrop, Mammo16BitMapper, normalize_with_percentiles
 from rfdetr.data.registration import register_mammo_dataset
 
-__all__ = ["Mammo16BitMapper", "register_mammo_dataset"]
+__all__ = [
+    "LesionAwareCrop",
+    "Mammo16BitMapper",
+    "normalize_with_percentiles",
+    "register_mammo_dataset",
+]

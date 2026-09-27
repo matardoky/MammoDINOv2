@@ -14,7 +14,14 @@ import numpy as np
 import pytest
 import torch
 
-from rfdetr.data.mapper import Mammo16BitMapper, normalize_with_percentiles
+from rfdetr.data.mapper import (
+    AugInput,
+    CropTransform,
+    LesionAwareCrop,
+    Mammo16BitMapper,
+    NoOpTransform,
+    normalize_with_percentiles,
+)
 from rfdetr.data.registration import get_classes_from_json
 from rfdetr.utils.visualize import read_mammo_uint8
 
@@ -301,3 +308,84 @@ def test_lesion_aware_crop_box_without_annotations():
         x0, y0, cw, ch = mapper._compute_lesion_aware_crop_box((1000, 800), [])
         assert 0 <= x0 <= 800 - 518
         assert 0 <= y0 <= 1000 - 518
+
+
+def test_lesion_aware_crop_augmentation_disabled():
+    """Verify LesionAwareCrop returns NoOpTransform when prob=0.0."""
+    aug = LesionAwareCrop(crop_size=(518, 518), prob=0.0)
+    dummy_img = np.zeros((1000, 800, 3), dtype=np.float32)
+    boxes = np.array([[100, 100, 200, 200]], dtype=np.float32)
+
+    tf = aug.get_transform(dummy_img, boxes=boxes)
+    assert isinstance(tf, NoOpTransform)
+    # Applying NoOpTransform preserves the image unchanged
+    assert tf.apply_image(dummy_img).shape == (1000, 800, 3)
+
+
+def test_lesion_aware_crop_augmentation_coco_boxes():
+    """Verify LesionAwareCrop with COCO annotation dicts preserves target lesion."""
+    aug = LesionAwareCrop(crop_size=(518, 518), prob=1.0)
+    dummy_img = np.zeros((1600, 1200, 3), dtype=np.float32)
+    # COCO format: [x, y, w, h]
+    annos = [{"bbox": [350, 450, 60, 80], "iscrowd": 0}]
+
+    for _ in range(30):
+        tf = aug.get_transform(dummy_img, boxes=annos)
+        assert isinstance(tf, CropTransform)
+        assert tf.w == 518 and tf.h == 518
+        assert 0 <= tf.x0 <= 1200 - 518
+        assert 0 <= tf.y0 <= 1600 - 518
+        # Lesion horizontal check
+        assert tf.x0 <= 350 and (350 + 60) <= tf.x0 + tf.w
+        # Lesion vertical check
+        assert tf.y0 <= 450 and (450 + 80) <= tf.y0 + tf.h
+
+
+def test_lesion_aware_crop_augmentation_numpy_boxes():
+    """Verify LesionAwareCrop with Detectron2 AugInput (N, 4) [x1, y1, x2, y2] boxes."""
+    aug = LesionAwareCrop(crop_size=(518, 518), prob=1.0)
+    dummy_img = np.zeros((1500, 1000, 3), dtype=np.float32)
+    # Detectron2 box format: [x1, y1, x2, y2]
+    boxes = np.array([[200, 300, 280, 410]], dtype=np.float32)
+
+    for _ in range(30):
+        tf = aug.get_transform(dummy_img, boxes=boxes)
+        assert isinstance(tf, CropTransform)
+        cropped_img = tf.apply_image(dummy_img)
+        assert cropped_img.shape == (518, 518, 3)
+
+        transformed_boxes = tf.apply_box(boxes)
+        # Transformed box must have non-negative coords within crop
+        x1, y1, x2, y2 = transformed_boxes[0]
+        assert 0 <= x1 < x2 <= 518
+        assert 0 <= y1 < y2 <= 518
+        # Dimensions must match exactly (translation invariant)
+        assert abs((x2 - x1) - 80) < 1e-4
+        assert abs((y2 - y1) - 110) < 1e-4
+
+
+def test_lesion_aware_crop_aug_input_interface():
+    """Verify LesionAwareCrop executes cleanly via AugInput container."""
+    aug = LesionAwareCrop(crop_size=(518, 518), prob=1.0)
+    dummy_img = np.ones((1200, 900, 3), dtype=np.float32)
+    boxes = np.array([[150, 250, 220, 330]], dtype=np.float32)
+
+    aug_input = AugInput(dummy_img, boxes=boxes)
+    tf = aug(aug_input)
+
+    assert isinstance(tf, CropTransform)
+    assert aug_input.image.shape == (518, 518, 3)
+    assert aug_input.boxes is not None
+    x1, y1, x2, y2 = aug_input.boxes[0]
+    assert 0 <= x1 < x2 <= 518
+    assert 0 <= y1 < y2 <= 518
+
+
+def test_mammo_mapper_integrates_crop_aug():
+    """Verify Mammo16BitMapper instantiates LesionAwareCrop with correct defaults."""
+    mapper = Mammo16BitMapper(augmentation=[], is_train=True)
+    assert isinstance(mapper.crop_aug, LesionAwareCrop)
+    assert mapper.crop_prob == 0.0
+    assert mapper.crop_aug.prob == 0.0
+    assert mapper.crop_size == (518, 518)
+    assert mapper.crop_aug.crop_size == (518, 518)
