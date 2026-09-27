@@ -225,3 +225,12 @@ def test_trainer_clip_grads_and_telemetry():
     assert norm is not None
     assert "grad_norm" in trainer.storage.history
     assert trainer.storage.history["grad_norm"] > 0
+
+
+def test_config_has_embed_dim():
+    """Verify configs/mammo_dinov2_dino.py specifies embed_dim=256 for DINO."""
+    config_path = PROJECT_ROOT / "configs" / "mammo_dinov2_dino.py"
+    with open(config_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "embed_dim=256" in content, "embed_dim=256 must be explicitly defined in model = L(DINO)(...)"
+

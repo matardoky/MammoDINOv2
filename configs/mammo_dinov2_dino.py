@@ -163,6 +163,7 @@ model = L(DINO)(
     ),
 
     # ── Misc ─────────────────────────────────────────────────────────────────
+    embed_dim=256,
     num_classes=_NUM_CLASSES,       # auto-set at runtime from dataset JSON
     num_queries=50,
     dn_number=6,
@@ -174,6 +175,7 @@ model = L(DINO)(
     device="cuda",
     select_box_nums_for_evaluation=50,
 )
+
 
 
 # ─── Auxiliary Loss Weights (Detrex DINO standard) ───────────────────────────
