@@ -211,15 +211,24 @@ def do_train(args, cfg):
 
     train_loader = instantiate(cfg.dataloader.train)
 
-    # Determine mixed precision dtype (Detrex DINO canonical is float16 with GradScaler)
-    amp_enabled = cfg.train.amp.enabled and (device == "cuda")
-    amp_dtype_str = getattr(args, "amp_dtype", None) or cfg.train.amp.get("dtype", "float16")
-    if amp_dtype_str in ("auto", "float16"):
-        amp_dtype = torch.float16
-    elif amp_dtype_str == "bfloat16":
-        amp_dtype = torch.bfloat16
+    # Determine mixed precision: default False (robust FP32 baseline) unless explicitly enabled
+    if getattr(args, "amp", None) is not None:
+        amp_enabled = bool(args.amp) and (device == "cuda")
+    else:
+        amp_enabled = bool(cfg.train.amp.get("enabled", False)) and (device == "cuda")
+
+    if amp_enabled:
+        amp_dtype_str = getattr(args, "amp_dtype", None) or cfg.train.amp.get("dtype", "float16")
+        if amp_dtype_str in ("auto", "float16"):
+            amp_dtype = torch.float16
+        elif amp_dtype_str == "bfloat16":
+            amp_dtype = torch.bfloat16
+        else:
+            amp_dtype = torch.float32
+        logger.info(f"AMP enabled with dtype={amp_dtype}")
     else:
         amp_dtype = torch.float32
+        logger.info("AMP disabled — training in robust standard FP32 (float32)")
 
     # Determine gradient accumulation steps (CLI flag overrides config)
     grad_accum_steps = (
@@ -342,8 +351,12 @@ def build_arg_parser():
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to DINOv2 checkpoint .pth")
     parser.add_argument("--accum-steps",     type=int, default=None,
                         help="Gradient accumulation steps (default: from config or 1)")
+    parser.add_argument("--amp",             dest="amp", action="store_true", default=None,
+                        help="Enable AMP mixed precision (default: False, trains in robust FP32)")
+    parser.add_argument("--no-amp",          dest="amp", action="store_false",
+                        help="Disable AMP mixed precision (force train in standard FP32)")
     parser.add_argument("--amp-dtype",       choices=["auto", "bfloat16", "float16", "float32"], default="float16",
-                        help="Mixed precision dtype: float16 (default, Detrex standard), bfloat16, float32, or auto")
+                        help="Mixed precision dtype when AMP is enabled: float16 (default), bfloat16, float32, or auto")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
     return parser
