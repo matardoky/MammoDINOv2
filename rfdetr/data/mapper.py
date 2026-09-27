@@ -15,7 +15,8 @@ from __future__ import annotations
 import copy
 import logging
 import os
-from typing import Any, Dict, List, Optional
+import random
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -90,11 +91,13 @@ class Mammo16BitMapper:
         high_pct: float = 99.0,
         images_fallback_dir: Optional[str] = None,
         use_percentile_norm: bool = True,
-        crop_prob: float = 0.2,
+        crop_prob: float = 0.0,
+        crop_size: Tuple[int, int] = (518, 518),
     ) -> None:
         self.augmentation = augmentation
         self.augmentation_with_crop = augmentation_with_crop
         self.crop_prob = float(crop_prob)
+        self.crop_size = tuple(crop_size)
         self.is_train = is_train
         self.mask_on = mask_on
         self.low_pct = low_pct
@@ -110,6 +113,42 @@ class Mammo16BitMapper:
             if os.path.isfile(candidate):
                 return candidate
         raise FileNotFoundError(f"Image not found: {file_name}")
+
+    def _compute_lesion_aware_crop_box(
+        self,
+        image_shape: Tuple[int, int],
+        annotations: List[Dict[str, Any]],
+    ) -> Tuple[int, int, int, int]:
+        """Compute (x0, y0, cw, ch) guaranteed to contain a lesion if annotations exist."""
+        H, W = image_shape[:2]
+        cw = min(W, self.crop_size[1])
+        ch = min(H, self.crop_size[0])
+
+        valid_annos = [a for a in annotations if a.get("iscrowd", 0) == 0 and "bbox" in a]
+        if valid_annos:
+            target = random.choice(valid_annos)
+            bx, by, bw, bh = target["bbox"]
+
+            if bw <= cw:
+                x_min = max(0, int(bx + bw - cw))
+                x_max = min(int(W - cw), int(bx))
+                x0 = random.randint(x_min, max(x_min, x_max))
+            else:
+                cx = int(bx + bw / 2)
+                x0 = int(np.clip(cx - cw // 2, 0, max(0, W - cw)))
+
+            if bh <= ch:
+                y_min = max(0, int(by + bh - ch))
+                y_max = min(int(H - ch), int(by))
+                y0 = random.randint(y_min, max(y_min, y_max))
+            else:
+                cy = int(by + bh / 2)
+                y0 = int(np.clip(cy - ch // 2, 0, max(0, H - ch)))
+        else:
+            x0 = random.randint(0, max(0, W - cw))
+            y0 = random.randint(0, max(0, H - ch))
+
+        return x0, y0, cw, ch
 
     def _read_image(self, file_name: str) -> np.ndarray:
         """Read 16-bit or 8-bit image -> float32 RGB (H, W, 3) in [0.0, 1.0]."""
@@ -143,12 +182,19 @@ class Mammo16BitMapper:
         utils.check_image_size(dataset_dict, image)
 
         do_crop = (
-            self.augmentation_with_crop is not None
-            and self.crop_prob > 0.0
+            self.crop_prob > 0.0
             and float(torch.rand(1).item()) < self.crop_prob
         )
         if do_crop:
-            image, transforms = T.apply_transform_gens(self.augmentation_with_crop, image)
+            x0, y0, cw, ch = self._compute_lesion_aware_crop_box(
+                image.shape[:2],
+                dataset_dict.get("annotations", []),
+            )
+            crop_tf = T.CropTransform(x0, y0, cw, ch)
+            image = crop_tf.apply_image(image)
+            image, other_transforms = T.apply_transform_gens(self.augmentation, image)
+            sub_tfs = other_transforms.transforms if hasattr(other_transforms, "transforms") else [other_transforms]
+            transforms = T.TransformList([crop_tf] + list(sub_tfs))
         else:
             image, transforms = T.apply_transform_gens(self.augmentation, image)
 

@@ -275,3 +275,29 @@ def test_crop_prob_configuration():
         is_train=False,
     )
     assert mapper_with_crop.crop_prob == 0.2
+
+
+def test_lesion_aware_crop_box_containment():
+    """Verify _compute_lesion_aware_crop_box strictly contains ground-truth lesion."""
+    mapper = Mammo16BitMapper(augmentation=[], crop_size=(518, 518), is_train=False)
+
+    # Image (1600, 1200) with a lesion of size (40, 50) at (300, 400)
+    annos = [{"bbox": [300, 400, 40, 50], "iscrowd": 0}]
+
+    for _ in range(50):
+        x0, y0, cw, ch = mapper._compute_lesion_aware_crop_box((1600, 1200), annos)
+        assert cw == 518 and ch == 518
+        assert 0 <= x0 <= 1200 - 518
+        assert 0 <= y0 <= 1600 - 518
+        # The lesion MUST be fully inside [x0, x0+cw] and [y0, y0+ch]
+        assert x0 <= 300 and (300 + 40) <= x0 + cw
+        assert y0 <= 400 and (400 + 50) <= y0 + ch
+
+
+def test_lesion_aware_crop_box_without_annotations():
+    """Verify crop box stays in bounds when image has 0 annotations."""
+    mapper = Mammo16BitMapper(augmentation=[], crop_size=(518, 518), is_train=False)
+    for _ in range(20):
+        x0, y0, cw, ch = mapper._compute_lesion_aware_crop_box((1000, 800), [])
+        assert 0 <= x0 <= 800 - 518
+        assert 0 <= y0 <= 1000 - 518
