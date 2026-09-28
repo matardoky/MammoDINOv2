@@ -289,8 +289,16 @@ def build_arg_parser():
                         help=f"Path to detrex clone (default: {_default_detrex})")
     parser.add_argument("--freeze-blocks",   type=int, default=2,
                         help="Number of initial DINOv2 blocks to freeze (default: 2)")
-    parser.add_argument("--clip-grad-norm",  type=float, default=1.0,
-                        help="Maximum gradient norm for clipping (default: 1.0)")
+    parser.add_argument("--num-queries",     type=int, default=None,
+                        help="Number of object queries in DINO (default: 100 from config)")
+    parser.add_argument("--dn-number",       type=int, default=None,
+                        help="Number of denoising query groups (default: 10 from config)")
+    parser.add_argument("--lr",              type=float, default=None,
+                        help="Base learning rate for heads and transformer (default: 1e-4)")
+    parser.add_argument("--backbone-lr",     type=float, default=None,
+                        help="Learning rate for top ViT block with layer-wise decay (default: 1.19e-4)")
+    parser.add_argument("--clip-grad-norm",  type=float, default=None,
+                        help="Maximum gradient norm for clipping (default: 0.1 from config)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Modify config options using key=value (e.g. --opts dataloader.train.mapper.crop_prob=0.2)")
     return parser
@@ -334,6 +342,15 @@ def main(args):
         cfg.model.backbone.backbone.freeze_blocks = args.freeze_blocks
         logger.info(f"Backbone freeze_blocks set to: {args.freeze_blocks}")
 
+    # Inject num_queries & dn_number
+    if getattr(args, "num_queries", None) is not None:
+        cfg.model.num_queries = args.num_queries
+        cfg.model.select_box_nums_for_evaluation = args.num_queries
+        logger.info(f"Model num_queries set to: {args.num_queries}")
+    if getattr(args, "dn_number", None) is not None:
+        cfg.model.dn_number = args.dn_number
+        logger.info(f"Model dn_number set to: {args.dn_number}")
+
     # Inject clip_grad_norm
     if getattr(args, "clip_grad_norm", None) is not None:
         if not hasattr(cfg.train, "clip_grad") or cfg.train.clip_grad is None:
@@ -341,6 +358,17 @@ def main(args):
         cfg.train.clip_grad.enabled = True
         cfg.train.clip_grad.params.max_norm = args.clip_grad_norm
         logger.info(f"Gradient clipping max_norm set to: {args.clip_grad_norm}")
+
+    # Inject learning rate into optimizer
+    if getattr(args, "lr", None) is not None and hasattr(cfg, "optimizer"):
+        cfg.optimizer.lr = args.lr
+        if hasattr(cfg.optimizer, "params") and hasattr(cfg.optimizer.params, "base_lr"):
+            cfg.optimizer.params.base_lr = args.lr
+            logger.info(f"Base LR set to: {args.lr}")
+    if getattr(args, "backbone_lr", None) is not None and hasattr(cfg, "optimizer"):
+        if hasattr(cfg.optimizer, "params") and hasattr(cfg.optimizer.params, "backbone_lr"):
+            cfg.optimizer.params.backbone_lr = args.backbone_lr
+            logger.info(f"Backbone LR set to: {args.backbone_lr}")
 
     # Inject output dir
     if getattr(args, "output_dir", None):

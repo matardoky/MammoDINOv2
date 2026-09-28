@@ -287,7 +287,7 @@ def test_mammo_config_dino_inheritance():
     assert "model.transformer.num_feature_levels = 4" in content
     assert "model.transformer.encoder.use_checkpoint = True" in content
     assert "model.transformer.decoder.use_checkpoint = True" in content
-    assert "model.num_queries = 50" in content
+    assert "model.num_queries = 100" in content
     assert "model.embed_dim = 256" in content
     assert "model.select_box_nums_for_evaluation = model.num_queries" in content
 
@@ -323,10 +323,61 @@ def test_mammo_config_dino_inheritance():
     assert model.transformer.num_feature_levels == 4
     assert model.transformer.encoder.use_checkpoint is True
     assert model.transformer.decoder.use_checkpoint is True
-    assert model.num_queries == 50
+    assert model.num_queries == 100
     assert model.embed_dim == 256
-    assert model.select_box_nums_for_evaluation == 50
+    assert model.select_box_nums_for_evaluation == 100
 
+
+def test_dinov2_optimizer_params():
+    """Verify that get_dinov2_optimizer_params correctly groups parameters with layer-wise decay."""
+    from rfdetr.solver.optimizer import get_dinov2_optimizer_params
+
+    class StubViTBlock(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = nn.Linear(384, 384)
+
+    class StubViT(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = nn.ModuleList([StubViTBlock() for _ in range(12)])
+            self.norm = nn.LayerNorm(384)
+
+    class StubBackbone(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vit = StubViT()
+
+    class StubModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.backbone = nn.Module()
+            self.backbone.backbone = StubBackbone()
+            self.backbone.projector = nn.Linear(384, 256)
+            self.head = nn.Linear(256, 10)
+
+    model = StubModel()
+    groups = get_dinov2_optimizer_params(
+        model,
+        base_lr=1e-4,
+        backbone_lr=1.19e-4,
+        layer_decay=0.90,
+        weight_decay=1e-4,
+        num_layers=12,
+    )
+
+    group_names = [g["name"] for g in groups]
+    assert any("backbone_depth_12" in n for n in group_names), "Must have backbone_depth_12"
+    assert any("head_decay" in n for n in group_names), "Must have head_decay"
+    assert any("head_no_decay" in n for n in group_names), "Must have head_no_decay"
+
+    # Verify top layer has backbone_lr and bottom has decayed lr
+    g12 = next(g for g in groups if g["name"] == "backbone_depth_12")
+    assert pytest.approx(g12["lr"], 1e-6) == 1.19e-4
+    assert g12["weight_decay"] == 0.0
+
+    g1 = next(g for g in groups if g["name"] == "backbone_depth_1")
+    assert pytest.approx(g1["lr"], 1e-6) == 1.19e-4 * (0.90 ** 11)
 
 
 if __name__ == "__main__":

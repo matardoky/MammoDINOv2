@@ -43,6 +43,7 @@ from fvcore.common.param_scheduler import MultiStepParamScheduler
 from rfdetr.data.mapper import Mammo16BitMapper
 from rfdetr.models.backbone import DINOv2MultiScaleBackbone
 from rfdetr.models.projector import BackboneProjectorWrapper, MultiScaleProjector
+from rfdetr.solver.optimizer import get_dinov2_optimizer_params
 
 
 # ─── num_classes placeholder ──────────────────────────────────────────────────
@@ -132,8 +133,8 @@ model.transformer.decoder.use_checkpoint = True
 # ─── 4. Mammography Lesion Detection Hyperparameters ────────────────────────
 model.embed_dim = 256                  # embed_dim=256 latent dimension
 model.num_classes = _NUM_CLASSES       # auto-patched at runtime from dataset JSON
-model.num_queries = 50                 # dynamically propagates to two_stage_num_proposals via dino_r50.py
-model.dn_number = 6
+model.num_queries = 100                # 100 queries provide double the spatial candidate density on high-res mammograms
+model.dn_number = 10                   # 10 CDN denoising query groups accelerating Hungarian bipartite matching
 model.pixel_mean = [0.3192, 0.3192, 0.3192]
 model.pixel_std = [0.2603, 0.2603, 0.2603]
 model.select_box_nums_for_evaluation = model.num_queries
@@ -221,13 +222,13 @@ dataloader.evaluator = L(COCOEvaluator)(
 )
 
 
-# ─── Optimizer (AdamW with backbone LR multiplier) ────────────────────────────
-
+# ─── Optimizer (AdamW with layer-wise DINOv2 decay) ───────────────────────────
 optimizer = L(torch.optim.AdamW)(
-    params=L(get_default_optimizer_params)(
+    params=L(get_dinov2_optimizer_params)(
         base_lr="${..lr}",
-        weight_decay_norm=0.0,
-        lr_factor_func=lambda module_name: 1.0 if "projector" in module_name else (0.1 if ("backbone.backbone" in module_name or "backbone.vit" in module_name) else 1.0),
+        backbone_lr=1.19e-4,
+        layer_decay=0.90,
+        weight_decay="${..weight_decay}",
     ),
     lr=1e-4,
     betas=(0.9, 0.999),
@@ -268,7 +269,7 @@ train = dict(
     clip_grad=dict(
         enabled=True,
         params=dict(
-            max_norm=1.0,
+            max_norm=0.1,
             norm_type=2,
         ),
     ),

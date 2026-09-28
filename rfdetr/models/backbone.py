@@ -65,6 +65,7 @@ class DINOv2MultiScaleBackbone(Backbone):
         freeze_blocks: int = 2,
         out_features: Sequence[str] = ("block3", "block6", "block9", "block12"),
         grad_checkpointing: bool = True,
+        norm_intermediates: bool = False,
     ) -> None:
         super().__init__()
         self.vit = timm.create_model(
@@ -75,6 +76,7 @@ class DINOv2MultiScaleBackbone(Backbone):
             num_classes=0,
         )
         self.grad_checkpointing = grad_checkpointing
+        self.norm_intermediates = norm_intermediates
         if grad_checkpointing and hasattr(self.vit, "set_grad_checkpointing"):
             self.vit.set_grad_checkpointing(True)
             logger.info("[DINOv2] Activation gradient checkpointing enabled on backbone.")
@@ -204,7 +206,7 @@ class DINOv2MultiScaleBackbone(Backbone):
         intermediates = self.vit.forward_intermediates(
             x,
             indices=self.BLOCK_INDICES,
-            norm=True,
+            norm=self.norm_intermediates,
             output_fmt="NCHW",
             intermediates_only=True,
         )

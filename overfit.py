@@ -67,17 +67,20 @@ def build_arg_parser():
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to pretrained DINOv2 weights (.pth)")
     parser.add_argument("--output-dir",      default="./output_overfit", help="Output directory for checkpoints and logs")
     parser.set_defaults(config_file="configs/mammo_dinov2_dino.py")
-    parser.add_argument("--num-images",      type=int, default=30, help="Number of images in overfit subset (default: 30)")
-    parser.add_argument("--max-iter",        type=int, default=400, help="Total training iterations (default: 400)")
+    parser.add_argument("--num-images",      type=int, default=20, help="Number of images in overfit subset (default: 20)")
+    parser.add_argument("--max-iter",        type=int, default=1000, help="Total training iterations (default: 1000)")
     parser.add_argument("--eval-period",     type=int, default=50, help="Evaluation and checkpoint period (default: 50)")
     parser.add_argument("--log-period",      type=int, default=10, help="Logging period (default: 10)")
-    parser.add_argument("--batch-size",      type=int, default=1, help="Physical batch size (default: 1 for safe VRAM on Colab T4, or 2)")
-    parser.add_argument("--lr",              type=float, default=1e-4, help="Base learning rate (default: 1e-4)")
+    parser.add_argument("--batch-size",      type=int, default=2, help="Physical batch size (default: 2)")
+    parser.add_argument("--lr",              type=float, default=1e-4, help="Base learning rate for heads/transformer (default: 1e-4)")
+    parser.add_argument("--backbone-lr",     type=float, default=1.19e-4, help="Top ViT block learning rate (default: 1.19e-4)")
     parser.add_argument("--seed",            type=int, default=42, help="Random seed for subset sampling (default: 42)")
     parser.add_argument("--visualize-after", action="store_true", default=True, help="Produce visual GT vs prediction comparison at end")
     parser.add_argument("--detrex-root",     default=_default_detrex, help="Path to detrex clone")
     parser.add_argument("--freeze-blocks",   type=int, default=2, help="Number of DINOv2 blocks to freeze (default: 2)")
-    parser.add_argument("--clip-grad-norm",  type=float, default=1.0, help="Maximum gradient norm for clipping (default: 1.0)")
+    parser.add_argument("--num-queries",     type=int, default=100, help="Number of object queries in DINO (default: 100)")
+    parser.add_argument("--dn-number",       type=int, default=10, help="Number of denoising query groups (default: 10)")
+    parser.add_argument("--clip-grad-norm",  type=float, default=0.1, help="Maximum gradient norm for clipping (default: 0.1)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Optional config overrides (e.g. --opts train.max_iter=500)")
     return parser
@@ -137,6 +140,15 @@ def main(args):
         cfg.model.backbone.backbone.freeze_blocks = args.freeze_blocks
         logger.info(f"Backbone freeze_blocks set to: {args.freeze_blocks}")
 
+    # Inject num_queries & dn_number
+    if getattr(args, "num_queries", None) is not None:
+        cfg.model.num_queries = args.num_queries
+        cfg.model.select_box_nums_for_evaluation = args.num_queries
+        logger.info(f"Model num_queries set to: {args.num_queries}")
+    if getattr(args, "dn_number", None) is not None:
+        cfg.model.dn_number = args.dn_number
+        logger.info(f"Model dn_number set to: {args.dn_number}")
+
     # Inject clip_grad_norm
     if getattr(args, "clip_grad_norm", None) is not None:
         if not hasattr(cfg.train, "clip_grad") or cfg.train.clip_grad is None:
@@ -148,21 +160,29 @@ def main(args):
     # Inject learning rate into optimizer
     if hasattr(cfg, "optimizer"):
         cfg.optimizer.lr = args.lr
+        if hasattr(cfg.optimizer, "params"):
+            if hasattr(cfg.optimizer.params, "base_lr"):
+                cfg.optimizer.params.base_lr = args.lr
+            if hasattr(cfg.optimizer.params, "backbone_lr"):
+                cfg.optimizer.params.backbone_lr = args.backbone_lr
 
     # Inject image directory into mappers — keeping exact training transforms and resize intact
     if hasattr(cfg, "dataloader"):
-        if hasattr(cfg.dataloader, "train") and hasattr(cfg.dataloader.train, "mapper"):
-            cfg.dataloader.train.mapper.images_fallback_dir = args.images_dir
-            cfg.dataloader.train.mapper.crop_prob = 0.0  # Full uncropped images for clean validation
-            cfg.dataloader.train.total_batch_size = args.batch_size
-            # Deterministic overfit: use the exact same fixed resize as test loader (no random flip/jitter)
-            cfg.dataloader.train.mapper.augmentation = [
-                L(T.ResizeShortestEdge)(
-                    short_edge_length=(812,),
-                    max_size=1624,
-                    sample_style="choice",
-                )
-            ]
+        if hasattr(cfg.dataloader, "train"):
+            # Clean infinite TrainingSampler without RepeatFactor distortion for small overfit subset
+            cfg.dataloader.train.sampler = None
+            if hasattr(cfg.dataloader.train, "mapper"):
+                cfg.dataloader.train.mapper.images_fallback_dir = args.images_dir
+                cfg.dataloader.train.mapper.crop_prob = 0.0  # Full uncropped images for clean validation
+                cfg.dataloader.train.total_batch_size = args.batch_size
+                # Deterministic overfit: use the exact same fixed resize as test loader (no random flip/jitter)
+                cfg.dataloader.train.mapper.augmentation = [
+                    L(T.ResizeShortestEdge)(
+                        short_edge_length=(812,),
+                        max_size=1624,
+                        sample_style="choice",
+                    )
+                ]
         if hasattr(cfg.dataloader, "test") and hasattr(cfg.dataloader.test, "mapper"):
             cfg.dataloader.test.mapper.images_fallback_dir = args.images_dir
 
@@ -173,13 +193,14 @@ def main(args):
     cfg.train.grad_accum_steps = 1  # Immediate optimizer steps on every micro-batch
     cfg.train.checkpointer = dict(period=args.eval_period, max_to_keep=5)
 
-    # Fast learning rate schedule (20 steps warmup, decay at 80% = step 320)
-    warmup_steps = min(20, max(5, int(args.max_iter * 0.05)))
-    decay_step = int(args.max_iter * 0.80)
+    # Learning rate schedule: 20 steps warmup, decay at 70% and 90% matching reference
+    warmup_steps = min(20, max(5, int(args.max_iter * 0.02)))
+    milestone_1 = int(args.max_iter * 0.70)
+    milestone_2 = int(args.max_iter * 0.90)
     cfg.lr_multiplier = L(WarmupParamScheduler)(
         scheduler=L(MultiStepParamScheduler)(
-            values=[1.0, 0.1],
-            milestones=[decay_step, args.max_iter],
+            values=[1.0, 0.1, 0.01],
+            milestones=[milestone_1, milestone_2, args.max_iter],
         ),
         warmup_length=warmup_steps / args.max_iter,
         warmup_method="linear",
