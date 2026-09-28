@@ -104,7 +104,7 @@ class ConvX(nn.Module):
         groups: int = 1,
         dilation: int = 1,
         act: str = "relu",
-        layer_norm: bool = False,
+        layer_norm: bool = True,
         rms_norm: bool = False,
     ) -> None:
         super().__init__()
@@ -147,7 +147,7 @@ class Bottleneck(nn.Module):
         k: Tuple[int, int] = (3, 3),
         e: float = 0.5,
         act: str = "silu",
-        layer_norm: bool = False,
+        layer_norm: bool = True,
         rms_norm: bool = False,
     ) -> None:
         super().__init__()
@@ -172,7 +172,7 @@ class C2f(nn.Module):
         g: int = 1,
         e: float = 0.5,
         act: str = "silu",
-        layer_norm: bool = False,
+        layer_norm: bool = True,
         rms_norm: bool = False,
     ) -> None:
         super().__init__()
@@ -212,7 +212,7 @@ class MultiScaleProjector(nn.Module):
         out_channels: int = 256,
         scale_factors: Sequence[float] = (2.0, 1.0, 0.5, 0.25),
         num_blocks: int = 3,
-        layer_norm: bool = False,
+        layer_norm: bool = True,
         rms_norm: bool = False,
         survival_prob: float = 1.0,
         force_drop_last_n_features: int = 0,

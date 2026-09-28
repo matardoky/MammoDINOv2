@@ -254,6 +254,81 @@ def test_size_divisibility():
     print(f"  [OK] size_divisibility={div} | {IMG_H}×{IMG_W} are valid input sizes")
 
 
+def test_projector_uses_layernorm_by_default():
+    """Verify that MultiScaleProjector defaults to layer_norm=True (Roboflow RF-DETR standard)."""
+    from rfdetr.models.projector import MultiScaleProjector, LayerNorm2d
+
+    proj = MultiScaleProjector(
+        in_channels=[DIM, DIM, DIM, DIM],
+        out_channels=OUT_CH,
+        scale_factors=(2.0, 1.0, 0.5, 0.25),
+        num_blocks=1,
+    )
+    # Check that conv normalization uses LayerNorm2d, not BatchNorm2d
+    has_bn = any(isinstance(m, nn.BatchNorm2d) for m in proj.modules())
+    has_ln = any(isinstance(m, LayerNorm2d) for m in proj.modules())
+    assert not has_bn, "MultiScaleProjector must NOT contain BatchNorm2d by default (causes batch_size=1 failure)"
+    assert has_ln, "MultiScaleProjector must contain LayerNorm2d by default for stability"
+
+
+def test_mammo_config_dino_inheritance():
+    """Verify configs/mammo_dinov2_dino.py properly inherits from dino_r50.py (dino_vitdet pattern)."""
+    from pathlib import Path
+
+    cfg_file = Path(__file__).resolve().parent.parent / "configs" / "mammo_dinov2_dino.py"
+    with open(cfg_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # 1. Static architectural contract checks (always run, even without detectron2)
+    assert "_load_dino_r50_model()" in content, "Must load base model via dino_r50 pattern"
+    assert "BackboneProjectorWrapper" in content, "Must wrap backbone and projector"
+    assert "layer_norm=True" in content, "Projector must use layer_norm=True for small batch stability"
+    assert 'model.neck.in_features = ["p2", "p3", "p4", "p5"]' in content
+    assert "model.transformer.num_feature_levels = 4" in content
+    assert "model.transformer.encoder.use_checkpoint = True" in content
+    assert "model.transformer.decoder.use_checkpoint = True" in content
+    assert "model.num_queries = 50" in content
+    assert "model.embed_dim = 256" in content
+    assert "model.select_box_nums_for_evaluation = model.num_queries" in content
+
+    # 2. Verify canonical dino_r50 base mirror
+    dino_r50_file = Path(__file__).resolve().parent.parent / "configs" / "models" / "dino_r50.py"
+    assert dino_r50_file.is_file(), "Canonical dino_r50.py mirror must exist in configs/models"
+    import importlib.util
+    spec_r50 = importlib.util.spec_from_file_location("dino_r50_mirror", str(dino_r50_file))
+    mod_r50 = importlib.util.module_from_spec(spec_r50)
+    spec_r50.loader.exec_module(mod_r50)
+    assert hasattr(mod_r50, "model"), "configs/models/dino_r50.py must define model"
+
+    # 3. Dynamic runtime instantiation test (when detectron2 is installed)
+    try:
+        import detectron2
+    except ImportError:
+        return  # Pass static verification if detectron2 not installed locally
+
+    spec = importlib.util.spec_from_file_location("test_mammo_cfg", str(cfg_file))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert hasattr(mod, "model"), "Config must export 'model'"
+    model = mod.model
+
+    # Check Detrex dino_vitdet pattern overrides
+    assert hasattr(model, "backbone"), "Model must have backbone"
+    assert hasattr(model, "neck"), "Model must have neck"
+    assert hasattr(model, "transformer"), "Model must have transformer"
+    assert hasattr(model, "criterion"), "Model must have criterion"
+    assert list(model.neck.in_features) == ["p2", "p3", "p4", "p5"]
+    assert model.neck.num_outs == 4
+    assert model.transformer.num_feature_levels == 4
+    assert model.transformer.encoder.use_checkpoint is True
+    assert model.transformer.decoder.use_checkpoint is True
+    assert model.num_queries == 50
+    assert model.embed_dim == 256
+    assert model.select_box_nums_for_evaluation == 50
+
+
+
 if __name__ == "__main__":
     print("\n=== Architecture Coordination Tests ===\n")
     print("1. Backbone output shapes")

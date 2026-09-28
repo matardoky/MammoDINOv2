@@ -1,29 +1,27 @@
 """configs/mammo_dinov2_dino.py
 
-LazyConfig for mammography lesion detection with DINOv2 + RF-DETR Projector + detrex DINO.
+LazyConfig for mammography lesion detection with DINOv2 + RF-DETR Projector + Detrex DINO.
 
-Structure:
-  - Starts from detrex DINO architecture (HungarianMatcher, DINOCriterion, Transformer, CDN
-    are all imported from detrex — NOT reimplemented).
-  - Replaces model.backbone with DINOv2MultiScaleBackbone + BackboneProjectorWrapper.
-  - Adjusts ChannelMapper input_shapes to match the projector's 4-level 256-channel output.
-  - Full Detrex configuration specification:
-      * model: DINO detection transformer
-      * dataloader: train and test loaders with Mammo16BitMapper (16-bit uint16)
-      * optimizer: AdamW with weight decay
-      * lr_multiplier: WarmupParamScheduler with MultiStep decay
-      * train: training hyperparameters (iterations, eval_period, clip_grad)
-
-num_classes:
-  NOT hardcoded here. Set to -1 as a sentinel value.
-  train.py and eval.py automatically read the real value from the COCO JSON
-  'categories' field and patch cfg.model.num_classes and cfg.model.criterion.num_classes
-  before the model is instantiated.
+Architecture & Inheritance:
+  - Follows the official Detrex design pattern demonstrated in dino_vitdet.py
+    (https://github.com/IDEA-Research/detrex/blob/main/projects/dino/configs/models/dino_vitdet.py):
+    inherits the canonical model definition directly from dino_r50.py
+    (https://github.com/IDEA-Research/detrex/blob/main/projects/dino/configs/models/dino_r50.py).
+  - Replaces model.backbone with DINOv2MultiScaleBackbone + MultiScaleProjector (Roboflow RF-DETR).
+  - Projector uses layer_norm=True (ConvNeXt-style LayerNorm2d) matching official Roboflow RF-DETR,
+    completely eliminating BatchNorm2d instability on small batch sizes (batch_size=1 or 2).
+  - Adapts model.neck (ChannelMapper) input_shapes to match the 4-level 256-channel projector output.
+  - Dynamically synchronizes two_stage_num_proposals with num_queries and criterion.num_classes
+    with num_classes via OmegaConf references defined in dino_r50.py.
+  - Pure FP32 training with activation checkpointing (use_checkpoint=True) and gradient checkpointing.
 """
 
 from __future__ import annotations
 
 import copy
+import importlib.util
+import os
+import sys
 import torch
 import torch.nn as nn
 from omegaconf import OmegaConf
@@ -42,162 +40,115 @@ from detectron2.solver import WarmupParamScheduler
 from detectron2.solver.build import get_default_optimizer_params
 from fvcore.common.param_scheduler import MultiStepParamScheduler
 
-from detrex.layers import PositionEmbeddingSine
-from detrex.modeling.matcher import HungarianMatcher
-from detrex.modeling.neck import ChannelMapper
-
-from projects.dino.modeling import (
-    DINO,
-    DINOCriterion,
-    DINOTransformer,
-    DINOTransformerDecoder,
-    DINOTransformerEncoder,
-)
-
 from rfdetr.data.mapper import Mammo16BitMapper
 from rfdetr.models.backbone import DINOv2MultiScaleBackbone
 from rfdetr.models.projector import BackboneProjectorWrapper, MultiScaleProjector
 
 
 # ─── num_classes placeholder ──────────────────────────────────────────────────
-# Sentinel value — DO NOT change this manually.
-# train.py / eval.py automatically detect and inject the correct value
-# from the COCO JSON 'categories' field before the model is instantiated.
-_NUM_CLASSES = -1  # auto-set at runtime from dataset JSON
+# Sentinel value — auto-detected and injected at runtime by train.py / overfit.py / eval.py
+# from the dataset's COCO JSON categories.
+_NUM_CLASSES = -1
 
 
-# ─── Model ───────────────────────────────────────────────────────────────────
+# ─── Base Model Loading (dino_vitdet.py pattern) ──────────────────────────────
+def _load_dino_r50_model():
+    """Load canonical Detrex DINO R50 model definition.
 
-model = L(DINO)(
-    # ← Only this block is custom; everything else is detrex-native
-    backbone=L(BackboneProjectorWrapper)(
-        backbone=L(DINOv2MultiScaleBackbone)(
-            checkpoint_path=None,          # set via train.py --dinov2-weights
-            model_name="vit_small_patch14_dinov2.lvd142m",
-            pretrained=False,
-            freeze_blocks=2,
-            grad_checkpointing=True,
-            out_features=["block3", "block6", "block9", "block12"],
-        ),
-        projector=L(MultiScaleProjector)(
-            in_channels=[384, 384, 384, 384],
-            out_channels=256,
-            scale_factors=(2.0, 1.0, 0.5, 0.25),
-            num_blocks=3,
-            survival_prob=1.0,
-            force_drop_last_n_features=0,
-        ),
+    Priority:
+      1. Detrex repository clone on Colab: /content/detrex/projects/dino/configs/models/dino_r50.py
+      2. Environment variable DETREX_DIR if set
+      3. Local mirror in configs/models/dino_r50.py
+    """
+    detrex_env = os.environ.get("DETREX_DIR", "")
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        "/content/detrex/projects/dino/configs/models/dino_r50.py",
+        os.path.join(detrex_env, "projects", "dino", "configs", "models", "dino_r50.py") if detrex_env else "",
+        os.path.join(cur_dir, "models", "dino_r50.py"),
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            spec = importlib.util.spec_from_file_location("_dino_r50_base", path)
+            if spec is not None and spec.loader is not None:
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules["_dino_r50_base"] = mod
+                spec.loader.exec_module(mod)
+                if hasattr(mod, "model"):
+                    return copy.deepcopy(mod.model)
+
+    try:
+        from .models.dino_r50 import model as _m
+        return copy.deepcopy(_m)
+    except Exception:
+        from configs.models.dino_r50 import model as _m
+        return copy.deepcopy(_m)
+
+
+# Inherit canonical Detrex DINO model
+model = _load_dino_r50_model()
+
+
+# ─── 1. Override Backbone (DINOv2 + Roboflow RF-DETR Projector) ──────────────
+model.backbone = L(BackboneProjectorWrapper)(
+    backbone=L(DINOv2MultiScaleBackbone)(
+        checkpoint_path=None,          # set via train.py --dinov2-weights
+        model_name="vit_small_patch14_dinov2.lvd142m",
+        pretrained=False,
+        freeze_blocks=2,               # freeze first 2 blocks for memory efficiency; 10 learnable
+        grad_checkpointing=True,       # memory optimization for ViT
+        out_features=["block3", "block6", "block9", "block12"],
     ),
-
-    # ── Positional encoding (detrex-native) ──────────────────────────────────
-    position_embedding=L(PositionEmbeddingSine)(
-        num_pos_feats=128,
-        temperature=10000,
-        normalize=True,
-        offset=-0.5,
-    ),
-
-    # ── Neck: maps projector output (all 256ch) to DINO latent dim ───────────
-    # The projector already outputs 256ch at 4 strides (7, 14, 28, 56).
-    # ChannelMapper here provides GroupNorm and the FPN interface expected by DINO.
-    neck=L(ChannelMapper)(
-        input_shapes={
-            "p2": ShapeSpec(channels=256, stride=7),
-            "p3": ShapeSpec(channels=256, stride=14),
-            "p4": ShapeSpec(channels=256, stride=28),
-            "p5": ShapeSpec(channels=256, stride=56),
-        },
-        in_features=["p2", "p3", "p4", "p5"],
+    projector=L(MultiScaleProjector)(
+        in_channels=[384, 384, 384, 384],
         out_channels=256,
-        num_outs=4,
-        norm_layer=L(nn.GroupNorm)(num_groups=32, num_channels=256),
+        scale_factors=(2.0, 1.0, 0.5, 0.25),
+        num_blocks=3,
+        layer_norm=True,               # Roboflow RF-DETR standard: LayerNorm2d eliminates BatchNorm2d issues
+        survival_prob=1.0,
+        force_drop_last_n_features=0,
     ),
-
-    # ── Transformer (detrex-native) ──────────────────────────────────────────
-    transformer=L(DINOTransformer)(
-        encoder=L(DINOTransformerEncoder)(
-            embed_dim=256,
-            num_heads=8,
-            feedforward_dim=2048,
-            attn_dropout=0.0,
-            ffn_dropout=0.0,
-            num_layers=6,
-            post_norm=False,
-            num_feature_levels=4,
-            use_checkpoint=True,
-        ),
-        decoder=L(DINOTransformerDecoder)(
-            embed_dim=256,
-            num_heads=8,
-            feedforward_dim=2048,
-            attn_dropout=0.0,
-            ffn_dropout=0.0,
-            num_layers=6,
-            return_intermediate=True,
-            num_feature_levels=4,
-            use_checkpoint=True,
-        ),
-        # CRITICAL: must match num_queries in DINO (default is 900 → mismatch with attn_mask).
-        # prepare_for_cdn builds attn_mask of size (dn_pad + num_queries, …) but the decoder
-        # actually receives (dn_pad + two_stage_num_proposals, …) queries from the encoder.
-        # Setting them equal eliminates the RuntimeError: attn_mask shape mismatch.
-        two_stage_num_proposals=50,
-    ),
-
-    # ── Criterion (detrex-native standard DINO weights) ─────────────────────
-    criterion=L(DINOCriterion)(
-        num_classes=_NUM_CLASSES,   # auto-set at runtime from dataset JSON
-        matcher=L(HungarianMatcher)(
-            cost_class=2.0,
-            cost_bbox=5.0,
-            cost_giou=2.0,
-            cost_class_type="focal_loss_cost",
-            alpha=0.25,
-            gamma=2.0,
-        ),
-        weight_dict={
-            "loss_class": 1.0,
-            "loss_bbox": 5.0,
-            "loss_giou": 2.0,
-            "loss_class_dn": 1.0,
-            "loss_bbox_dn": 5.0,
-            "loss_giou_dn": 2.0,
-        },
-        losses=["class", "boxes"],
-        eos_coef=0.1,
-        loss_class_type="focal_loss",
-        alpha=0.25,
-        gamma=2.0,
-        two_stage_binary_cls=False,
-    ),
-
-    # ── Misc ─────────────────────────────────────────────────────────────────
-    embed_dim=256,
-    num_classes=_NUM_CLASSES,       # auto-set at runtime from dataset JSON
-    num_queries=50,
-    dn_number=6,
-    label_noise_ratio=0.5,
-    box_noise_scale=1.0,
-    # Mammography-specific normalization for float32 [0.0, 1.0] image tensors
-    pixel_mean=[0.3192, 0.3192, 0.3192],
-    pixel_std=[0.2603, 0.2603, 0.2603],
-    device="cuda",
-    select_box_nums_for_evaluation=50,
 )
 
 
+# ─── 2. Adapt Neck (ChannelMapper) for 4-Level Projector Output ──────────────
+model.neck.input_shapes = {
+    "p2": ShapeSpec(channels=256, stride=7),
+    "p3": ShapeSpec(channels=256, stride=14),
+    "p4": ShapeSpec(channels=256, stride=28),
+    "p5": ShapeSpec(channels=256, stride=56),
+}
+model.neck.in_features = ["p2", "p3", "p4", "p5"]
+model.neck.num_outs = 4
+model.neck.norm_layer = L(nn.GroupNorm)(num_groups=32, num_channels=256)
 
-# ─── Auxiliary Loss Weights (Detrex DINO standard) ───────────────────────────
-# Deep supervision for the 6 decoder layers and the encoder proposal head
-base_weight_dict = copy.deepcopy(model.criterion.weight_dict)
-if model.get("aux_loss", True):
-    weight_dict = copy.deepcopy(base_weight_dict)
+
+# ─── 3. Transformer Memory & Feature Levels ──────────────────────────────────
+model.transformer.num_feature_levels = 4
+model.transformer.encoder.use_checkpoint = True
+model.transformer.decoder.use_checkpoint = True
+
+
+# ─── 4. Mammography Lesion Detection Hyperparameters ────────────────────────
+model.embed_dim = 256                  # embed_dim=256 latent dimension
+model.num_classes = _NUM_CLASSES       # auto-patched at runtime from dataset JSON
+model.num_queries = 50                 # dynamically propagates to two_stage_num_proposals via dino_r50.py
+model.dn_number = 6
+model.pixel_mean = [0.3192, 0.3192, 0.3192]
+model.pixel_std = [0.2603, 0.2603, 0.2603]
+model.select_box_nums_for_evaluation = model.num_queries
+
+# Ensure aux_loss weight dictionary is fully populated
+if getattr(model, "aux_loss", True):
+    base_weight_dict = copy.deepcopy(model.criterion.weight_dict)
     aux_weight_dict = {}
-    aux_weight_dict.update({k + "_enc": v for k, v in base_weight_dict.items()})
-    for i in range(model.transformer.decoder.num_layers - 1):
-        aux_weight_dict.update({k + f"_{i}": v for k, v in base_weight_dict.items()})
-    weight_dict.update(aux_weight_dict)
-    model.criterion.weight_dict = weight_dict
+    aux_weight_dict.update({k + "_enc": v for k, v in base_weight_dict.items() if not k.endswith("_enc") and not any(k.endswith(f"_{i}") for i in range(10))})
+    dec_layers = getattr(getattr(getattr(model, "transformer", None), "decoder", None), "num_layers", 6)
+    if isinstance(dec_layers, int):
+        for i in range(dec_layers - 1):
+            aux_weight_dict.update({k + f"_{i}": v for k, v in base_weight_dict.items() if not k.endswith("_enc") and not any(k.endswith(f"_{j}") for j in range(10))})
+    base_weight_dict.update(aux_weight_dict)
+    model.criterion.weight_dict = base_weight_dict
 
 
 # ─── Data Loaders ─────────────────────────────────────────────────────────────
@@ -270,7 +221,7 @@ dataloader.evaluator = L(COCOEvaluator)(
 )
 
 
-# ─── Optimizer (Detrex standard with backbone LR multiplier) ──────────────────
+# ─── Optimizer (AdamW with backbone LR multiplier) ────────────────────────────
 
 optimizer = L(torch.optim.AdamW)(
     params=L(get_default_optimizer_params)(
@@ -287,8 +238,6 @@ optimizer = L(torch.optim.AdamW)(
 # ─── LR Scheduler ─────────────────────────────────────────────────────────────
 
 # 20 epochs × 2835 iters/epoch (5669 images / batch_size 2) = 56 700 iters total
-# Warmup : 1 epoch (2835 iters = 5 % du total)
-# Decay LR ×10 à l'epoch 16 (80 % = 45 360 iters)
 _ITERS_PER_EPOCH = 2835    # ceil(5669 / 2)
 _MAX_ITER        = 56_700  # 20 epochs
 _WARMUP_ITERS    = int(_MAX_ITER * 0.02)   # 2 % → 1 134 iters
@@ -305,17 +254,17 @@ lr_multiplier = L(WarmupParamScheduler)(
 )
 
 
-# ─── Training Runtime Configuration ──────────────────────────────────────────
+# ─── Training Runtime Configuration (FP32 Pur, No AMP) ───────────────────────
 
 train = dict(
     output_dir="./output",
     init_checkpoint="",
-    max_iter=_MAX_ITER,                         # 56 700  (20 epochs)
-    eval_period=_ITERS_PER_EPOCH,               # évaluation toutes les epochs
+    max_iter=_MAX_ITER,
+    eval_period=_ITERS_PER_EPOCH,
     log_period=20,
     device="cuda",
     grad_accum_steps=8,  # Effective batch size = total_batch_size (2) × 8 = 16
-    checkpointer=dict(period=_ITERS_PER_EPOCH, max_to_keep=5),  # checkpoint / epoch
+    checkpointer=dict(period=_ITERS_PER_EPOCH, max_to_keep=5),
     clip_grad=dict(
         enabled=True,
         params=dict(
