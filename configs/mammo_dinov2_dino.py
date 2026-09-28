@@ -76,6 +76,7 @@ model = L(DINO)(
             model_name="vit_small_patch14_dinov2.lvd142m",
             pretrained=False,
             freeze_blocks=2,
+            grad_checkpointing=True,
             out_features=["block3", "block6", "block9", "block12"],
         ),
         projector=L(MultiScaleProjector)(
@@ -123,6 +124,7 @@ model = L(DINO)(
             num_layers=6,
             post_norm=False,
             num_feature_levels=4,
+            use_checkpoint=True,
         ),
         decoder=L(DINOTransformerDecoder)(
             embed_dim=256,
@@ -133,6 +135,7 @@ model = L(DINO)(
             num_layers=6,
             return_intermediate=True,
             num_feature_levels=4,
+            use_checkpoint=True,
         ),
         # CRITICAL: must match num_queries in DINO (default is 900 → mismatch with attn_mask).
         # prepare_for_cdn builds attn_mask of size (dn_pad + num_queries, …) but the decoder

@@ -79,7 +79,7 @@ from detectron2.engine import SimpleTrainer
 
 
 class Trainer(SimpleTrainer):
-    """Combines SimpleTrainer with Gradient Accumulation + Grad Norm Logging in robust FP32."""
+    """Combines SimpleTrainer with Gradient Accumulation + Grad Norm Logging + optional AMP."""
 
     def __init__(
         self,
@@ -88,6 +88,8 @@ class Trainer(SimpleTrainer):
         optimizer,
         clip_grad_params: Optional[dict] = None,
         grad_accum_steps: int = 1,
+        amp: bool = False,
+        amp_dtype: Optional[torch.dtype] = None,
     ):
         super().__init__(model=model, data_loader=dataloader, optimizer=optimizer)
         unsupported = "Trainer does not support single-process multi-device training!"
@@ -97,6 +99,13 @@ class Trainer(SimpleTrainer):
 
         self.clip_grad_params = clip_grad_params
         self.grad_accum_steps = max(1, int(grad_accum_steps))
+        self.amp = bool(amp)
+        self.amp_dtype = amp_dtype or (
+            torch.bfloat16 if (torch.cuda.is_available() and torch.cuda.is_bf16_supported()) else torch.float16
+        )
+        self.grad_scaler = None
+        if self.amp and self.amp_dtype == torch.float16 and torch.cuda.is_available():
+            self.grad_scaler = torch.cuda.amp.GradScaler()
 
     def _should_step(self) -> bool:
         """Step optimizer every grad_accum_steps or at the final iteration."""
@@ -124,17 +133,34 @@ class Trainer(SimpleTrainer):
         accum = self.grad_accum_steps
         do_step = self._should_step()
 
-        loss_dict = self.model(data)
-        if isinstance(loss_dict, torch.Tensor):
-            loss_dict = {"total_loss": loss_dict}
-        losses = sum(loss_dict.values()) / accum
+        if self.amp and torch.cuda.is_available():
+            with torch.amp.autocast("cuda", dtype=self.amp_dtype):
+                loss_dict = self.model(data)
+                if isinstance(loss_dict, torch.Tensor):
+                    loss_dict = {"total_loss": loss_dict}
+                losses = sum(loss_dict.values()) / accum
+        else:
+            loss_dict = self.model(data)
+            if isinstance(loss_dict, torch.Tensor):
+                loss_dict = {"total_loss": loss_dict}
+            losses = sum(loss_dict.values()) / accum
 
-        losses.backward()
-        if do_step:
-            if self.clip_grad_params:
-                self.clip_grads(self.model.parameters())
-            self.optimizer.step()
-            self.optimizer.zero_grad()
+        if self.grad_scaler is not None:
+            self.grad_scaler.scale(losses).backward()
+            if do_step:
+                if self.clip_grad_params:
+                    self.grad_scaler.unscale_(self.optimizer)
+                    self.clip_grads(self.model.parameters())
+                self.grad_scaler.step(self.optimizer)
+                self.grad_scaler.update()
+                self.optimizer.zero_grad()
+        else:
+            losses.backward()
+            if do_step:
+                if self.clip_grad_params:
+                    self.clip_grads(self.model.parameters())
+                self.optimizer.step()
+                self.optimizer.zero_grad()
 
         # Write true unscaled micro-batch losses for dashboard logging
         loss_log = {
@@ -173,12 +199,14 @@ def do_train(args, cfg):
         else cfg.train.get("grad_accum_steps", 1)
     )
 
+    amp_enabled = bool(getattr(args, "amp", False) or cfg.train.get("amp", {}).get("enabled", False))
     trainer = Trainer(
         model=model,
         dataloader=train_loader,
         optimizer=optimizer,
         clip_grad_params=cfg.train.get("clip_grad", {}).get("params", None),
         grad_accum_steps=grad_accum_steps,
+        amp=amp_enabled,
     )
 
     lr_scheduler = instantiate(cfg.lr_multiplier)
@@ -291,6 +319,8 @@ def build_arg_parser():
                         help="Number of initial DINOv2 blocks to freeze (default: 2)")
     parser.add_argument("--clip-grad-norm",  type=float, default=1.0,
                         help="Maximum gradient norm for clipping (default: 1.0)")
+    parser.add_argument("--amp",             action="store_true", default=False,
+                        help="Enable automatic mixed precision (AMP fp16/bf16)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Modify config options using key=value (e.g. --opts dataloader.train.mapper.crop_prob=0.2)")
     return parser

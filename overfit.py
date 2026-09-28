@@ -71,13 +71,14 @@ def build_arg_parser():
     parser.add_argument("--max-iter",        type=int, default=400, help="Total training iterations (default: 400)")
     parser.add_argument("--eval-period",     type=int, default=50, help="Evaluation and checkpoint period (default: 50)")
     parser.add_argument("--log-period",      type=int, default=10, help="Logging period (default: 10)")
-    parser.add_argument("--batch-size",      type=int, default=2, help="Physical batch size (default: 2)")
+    parser.add_argument("--batch-size",      type=int, default=1, help="Physical batch size (default: 1 for safe VRAM on Colab T4, or 2)")
     parser.add_argument("--lr",              type=float, default=1e-4, help="Base learning rate (default: 1e-4)")
     parser.add_argument("--seed",            type=int, default=42, help="Random seed for subset sampling (default: 42)")
     parser.add_argument("--visualize-after", action="store_true", default=True, help="Produce visual GT vs prediction comparison at end")
     parser.add_argument("--detrex-root",     default=_default_detrex, help="Path to detrex clone")
     parser.add_argument("--freeze-blocks",   type=int, default=2, help="Number of DINOv2 blocks to freeze (default: 2)")
     parser.add_argument("--clip-grad-norm",  type=float, default=1.0, help="Maximum gradient norm for clipping (default: 1.0)")
+    parser.add_argument("--amp",             action="store_true", default=False, help="Enable automatic mixed precision (AMP fp16/bf16)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Optional config overrides (e.g. --opts train.max_iter=500)")
     return parser
@@ -148,6 +149,9 @@ def main(args):
     # Inject learning rate into optimizer
     if hasattr(cfg, "optimizer"):
         cfg.optimizer.lr = args.lr
+
+    # Inject AMP setting
+    cfg.train.amp = dict(enabled=bool(args.amp))
 
     # Inject image directory into mappers — keeping exact training transforms and resize intact
     if hasattr(cfg, "dataloader"):

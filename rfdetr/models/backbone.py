@@ -64,6 +64,7 @@ class DINOv2MultiScaleBackbone(Backbone):
         pretrained: bool = False,
         freeze_blocks: int = 2,
         out_features: Sequence[str] = ("block3", "block6", "block9", "block12"),
+        grad_checkpointing: bool = True,
     ) -> None:
         super().__init__()
         self.vit = timm.create_model(
@@ -73,6 +74,10 @@ class DINOv2MultiScaleBackbone(Backbone):
             dynamic_img_pad=True,
             num_classes=0,
         )
+        self.grad_checkpointing = grad_checkpointing
+        if grad_checkpointing and hasattr(self.vit, "set_grad_checkpointing"):
+            self.vit.set_grad_checkpointing(True)
+            logger.info("[DINOv2] Activation gradient checkpointing enabled on backbone.")
         self._p: int = int(self.vit.patch_embed.patch_size[0])
         self._dim: int = int(self.vit.embed_dim)
         self.n_blocks: int = len(self.vit.blocks)
