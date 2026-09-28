@@ -290,9 +290,9 @@ def build_arg_parser():
     parser.add_argument("--freeze-blocks",   type=int, default=2,
                         help="Number of initial DINOv2 blocks to freeze (default: 2)")
     parser.add_argument("--num-queries",     type=int, default=None,
-                        help="Number of object queries in DINO (default: 50 from config)")
+                        help="Number of object queries in DINO (default: 100 from config)")
     parser.add_argument("--dn-number",       type=int, default=None,
-                        help="Number of denoising query groups (default: 6 from config)")
+                        help="Number of denoising query groups (default: 10 from config)")
     parser.add_argument("--lr",              type=float, default=None,
                         help="Base learning rate for heads and transformer (default: 1e-4)")
     parser.add_argument("--backbone-lr",     type=float, default=None,
