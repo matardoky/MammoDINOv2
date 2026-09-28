@@ -294,7 +294,7 @@ lr_multiplier = L(WarmupParamScheduler)(
         values=[1.0, 0.1],
         milestones=[_LR_DECAY_ITER, _MAX_ITER],
     ),
-    warmup_length=_WARMUP_ITERS / _MAX_ITER,  # 0.05  (5 %)
+    warmup_length=_WARMUP_ITERS / _MAX_ITER,  # 0.02  (2 %)
     warmup_method="linear",
     warmup_factor=0.001,
 )
