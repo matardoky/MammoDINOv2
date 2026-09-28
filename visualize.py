@@ -35,7 +35,7 @@ sys.path.insert(0, _default_detrex)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from rfdetr.data.registration import register_mammo_dataset
-from rfdetr.utils.visualize import visualize_dataset, visualize_predictions
+from rfdetr.utils.visualize import visualize_crop, visualize_dataset, visualize_predictions
 
 logger = logging.getLogger("mammo_visualize")
 
@@ -55,6 +55,8 @@ def main():
     parser.add_argument("--test-size",    type=int, default=812)
     parser.add_argument("--save-dir",     default=None, help="Save figures here (optional, if omitted or if --show is passed, displays inline)")
     parser.add_argument("--show",         action="store_true", default=False, help="Force inline display (useful in Jupyter/Colab notebooks)")
+    parser.add_argument("--crop",         action="store_true", default=False, help="Visualize LesionAwareCrop augmentation (518x518 crop with guaranteed lesion containment)")
+    parser.add_argument("--crop-size",    type=int, nargs=2, default=[518, 518], help="Crop window height and width (default: 518 518)")
     parser.add_argument("--seed",         type=int, default=None, help="Random seed for reproducibility (default: None for fresh random selection)")
     parser.add_argument("--detrex-root",  default=_default_detrex)
     args = parser.parse_args()
@@ -104,6 +106,19 @@ def main():
             images_fallback_dir=args.images_dir,
             test_size=args.test_size,
             max_size=args.max_size,
+            show=args.show,
+        )
+    elif args.crop:
+        # ── Mode 3: Crop Augmentation Validation (Original vs LesionAwareCrop) ──
+        visualize_crop(
+            dataset_name=dataset_name,
+            num_images=args.num_images,
+            crop_size=tuple(args.crop_size),
+            low_pct=args.low_pct,
+            high_pct=args.high_pct,
+            save_dir=args.save_dir,
+            seed=args.seed,
+            images_fallback_dir=args.images_dir,
             show=args.show,
         )
     else:

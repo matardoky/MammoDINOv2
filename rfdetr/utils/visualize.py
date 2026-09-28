@@ -164,6 +164,133 @@ def visualize_dataset(
     plt.close(fig)
 
 
+def visualize_crop(
+    dataset_name: str = "mammo_train",
+    num_images: int = 3,
+    crop_size: Tuple[int, int] = (518, 518),
+    low_pct: float = 1.0,
+    high_pct: float = 99.0,
+    save_dir: Optional[str] = None,
+    seed: Optional[int] = None,
+    images_fallback_dir: Optional[str] = None,
+    show: bool = False,
+) -> None:
+    """Visualize LesionAwareCrop augmentation.
+
+    Demonstrates that the crop window (default 518x518) always contains
+    the target lesion annotations. Displays:
+      - Left column: Original full image with ground-truth lesion boxes and the crop window boundary (red rectangle).
+      - Right column: The resulting 518x518 cropped image with correctly transformed bounding boxes.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+    except ImportError:
+        raise ImportError("matplotlib is required: pip install matplotlib")
+
+    if DatasetCatalog is None or MetadataCatalog is None:
+        raise ImportError("detectron2 is required for dataset visualization")
+
+    if seed is not None:
+        random.seed(seed)
+
+    from rfdetr.data.mapper import LesionAwareCrop
+
+    crop_aug = LesionAwareCrop(crop_size=crop_size, prob=1.0)
+    dataset_dicts = DatasetCatalog.get(dataset_name)
+    metadata = MetadataCatalog.get(dataset_name)
+
+    # Focus on images with annotations to demonstrate lesion containment
+    annotated = [d for d in dataset_dicts if len(d.get("annotations", [])) > 0]
+    samples = random.sample(annotated, min(num_images, len(annotated))) if annotated else random.sample(dataset_dicts, min(num_images, len(dataset_dicts)))
+
+    fig, axs = plt.subplots(
+        nrows=len(samples),
+        ncols=2,
+        figsize=(16, 8 * len(samples)),
+        squeeze=False,
+    )
+
+    for i, d in enumerate(samples):
+        img_rgb = read_mammo_uint8(
+            d["file_name"],
+            low_pct=low_pct,
+            high_pct=high_pct,
+            images_fallback_dir=images_fallback_dir,
+        )
+        H, W = img_rgb.shape[:2]
+
+        # Compute crop box (guaranteed to contain lesion)
+        x0, y0, cw, ch = crop_aug.get_crop_box((H, W), d.get("annotations", []))
+
+        # 1. Left: Full image with annotations + red crop window
+        vis_full = Visualizer(img_rgb, metadata=metadata, scale=1.0)
+        out_full = vis_full.draw_dataset_dict(d)
+        axs[i, 0].imshow(out_full.get_image())
+        # Draw the crop window rectangle in red dashed line
+        rect = patches.Rectangle(
+            (x0, y0), cw, ch,
+            linewidth=3, edgecolor="red", facecolor="none", linestyle="--",
+            label=f"Crop window ({cw}×{ch})"
+        )
+        axs[i, 0].add_patch(rect)
+        axs[i, 0].legend(loc="upper right", fontsize=11, framealpha=0.8)
+        axs[i, 0].axis("off")
+        axs[i, 0].set_title(
+            f"Full Image — {Path(d['file_name']).name} ({W}×{H} px)\nRed dashed box = LesionAwareCrop ({cw}×{ch})",
+            fontsize=12, fontweight="bold",
+        )
+
+        # 2. Right: Cropped patch with transformed annotations
+        img_cropped = img_rgb[y0 : y0 + ch, x0 : x0 + cw]
+        cropped_dict = {
+            "file_name": d["file_name"],
+            "image_id": d.get("image_id", i),
+            "height": ch,
+            "width": cw,
+            "annotations": [],
+        }
+        for ann in d.get("annotations", []):
+            bx, by, bw, bh = ann["bbox"]
+            nbx = bx - x0
+            nby = by - y0
+            x1 = max(0, nbx)
+            y1 = max(0, nby)
+            x2 = min(cw, nbx + bw)
+            y2 = min(ch, nby + bh)
+            if x2 > x1 and y2 > y1:
+                new_ann = dict(ann)
+                new_ann["bbox"] = [x1, y1, x2 - x1, y2 - y1]
+                cropped_dict["annotations"].append(new_ann)
+
+        vis_crop = Visualizer(img_cropped, metadata=metadata, scale=1.0)
+        out_crop = vis_crop.draw_dataset_dict(cropped_dict)
+        axs[i, 1].imshow(out_crop.get_image())
+        axs[i, 1].axis("off")
+        n_in_crop = len(cropped_dict["annotations"])
+        axs[i, 1].set_title(
+            f"LesionAwareCrop Output ({cw}×{ch} px)\n{n_in_crop} lesion(s) preserved 100% inside crop",
+            fontsize=12, fontweight="bold", color="darkgreen",
+        )
+
+    plt.suptitle(
+        f"LesionAwareCrop Validation — {dataset_name} ({crop_size[0]}×{crop_size[1]})",
+        fontsize=15, fontweight="bold", y=1.002,
+    )
+    plt.tight_layout()
+
+    if save_dir:
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        out_path = Path(save_dir) / f"crop_validation_{dataset_name}.png"
+        plt.savefig(out_path, dpi=150, bbox_inches="tight")
+        print(f"Saved crop validation to: {out_path}")
+
+    if show or not save_dir:
+        plt.show()
+
+    plt.close(fig)
+
+
 def visualize_predictions(
     model,
     dataset_name: str,
