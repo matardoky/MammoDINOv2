@@ -79,5 +79,5 @@ runs/
 
 # Local Detrex clone (when downloaded or compiled in repo root)
 detrex/
-notebook_cells.txt
 scratch/
+
