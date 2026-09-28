@@ -287,8 +287,10 @@ def build_arg_parser():
                         help="Gradient accumulation steps (default: from config or 1)")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
-    parser.add_argument("--freeze-blocks",   type=int, default=0,
-                        help="Number of initial DINOv2 blocks to freeze (default: 0 = fully unfrozen)")
+    parser.add_argument("--freeze-blocks",   type=int, default=2,
+                        help="Number of initial DINOv2 blocks to freeze (default: 2)")
+    parser.add_argument("--clip-grad-norm",  type=float, default=1.0,
+                        help="Maximum gradient norm for clipping (default: 1.0)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Modify config options using key=value (e.g. --opts dataloader.train.mapper.crop_prob=0.2)")
     return parser
@@ -327,10 +329,18 @@ def main(args):
     if args.dinov2_weights:
         cfg.model.backbone.backbone.checkpoint_path = args.dinov2_weights
 
-    # Inject freeze_blocks (0 = fully unfrozen)
+    # Inject freeze_blocks (0 = fully unfrozen, 2 = first 2 blocks frozen)
     if hasattr(args, "freeze_blocks") and args.freeze_blocks is not None:
         cfg.model.backbone.backbone.freeze_blocks = args.freeze_blocks
         logger.info(f"Backbone freeze_blocks set to: {args.freeze_blocks}")
+
+    # Inject clip_grad_norm
+    if getattr(args, "clip_grad_norm", None) is not None:
+        if not hasattr(cfg.train, "clip_grad") or cfg.train.clip_grad is None:
+            cfg.train.clip_grad = dict(enabled=True, params=dict(norm_type=2))
+        cfg.train.clip_grad.enabled = True
+        cfg.train.clip_grad.params.max_norm = args.clip_grad_norm
+        logger.info(f"Gradient clipping max_norm set to: {args.clip_grad_norm}")
 
     # Inject output dir
     if getattr(args, "output_dir", None):
