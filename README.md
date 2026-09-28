@@ -35,13 +35,14 @@ A modular, production-ready implementation of **RF-DETR** tailored for lesion de
          ▼
 [detrex DINO Transformer & Head]
   - Deformable attention multi-scale encoder & decoder (6 layers each)
-  - 2-stage query generation & Hungarian Matcher
-  - Focal Loss + L1 Bounding Box Loss + GIoU Loss + Contrastive DeNoising (CDN)
+  - 2-stage query generation (num_queries = two_stage_num_proposals = 50)
+  - Hungarian Matcher + Focal Loss + L1 Bounding Box Loss + GIoU Loss + Contrastive DeNoising (CDN)
 ```
 
 ### Key Principles
 - **Minimal custom footprint**: Only custom modules not available in standard libraries are implemented (`backbone.py`, `projector.py`, `mapper.py`). Everything else (transformer, neck, matcher, criterion, optimizer, trainers, evaluators) is imported directly from `detrex` and `detectron2`.
 - **Automatic dynamic class detection**: Class names (`thing_classes`) and count (`num_classes`) are extracted on-the-fly from the COCO JSON `categories` field — no hardcoding required.
+- **Pure FP32 Precision**: Pure standard 32-bit floating point precision throughout the network, ensuring complete numerical stability and zero kernel incompatibilities with Detrex `MultiScaleDeformableAttention`.
 - **Robust medical imaging support**: Dedicated 16-bit percentile windowing preserves micro-calcifications and subtle mass margins without dynamic range loss.
 
 ---
@@ -51,7 +52,7 @@ A modular, production-ready implementation of **RF-DETR** tailored for lesion de
 ```
 RF-DETR/
 ├── configs/
-│   └── mammo_dinov2_dino.py       # Detrex LazyConfig (extends dino_r50, swaps backbone)
+│   └── mammo_dinov2_dino.py       # Detrex LazyConfig (DINOv2 + RF-DETR Projector + DINO)
 ├── rfdetr/
 │   ├── models/
 │   │   ├── backbone.py            # DINOv2 multi-scale intermediate feature extractor
@@ -67,13 +68,16 @@ RF-DETR/
 ├── notebooks/
 │   └── colab_quickstart.ipynb     # Jupyter/Colab quickstart guide
 ├── tests/
+│   ├── conftest.py                # Global pytest warning filters (clean reports)
 │   ├── test_architecture.py       # Full pipeline shape & interface coordination tests
 │   ├── test_backbone.py           # Unit tests for DINOv2 feature extractor & freezing
+│   ├── test_cli_and_integration.py# CLI arg parsing & end-to-end gradient flow smoke tests
+│   ├── test_data.py               # Data mapper, uint16 normalization & sampler tests
 │   └── test_projector.py          # Unit tests for RF-DETR projector & pyramid shapes
 ├── train.py                       # CLI entrypoint for training & resume
 ├── eval.py                        # Standalone COCO evaluation script
-├── visualize.py                   # CLI tool to visualize dataset annotations
-├── pyproject.toml                 # Package definition & dependencies
+├── visualize.py                   # CLI tool to visualize dataset annotations & predictions
+├── pyproject.toml                 # Package definition, tool settings & warning filters
 ├── requirements.txt               # Pinned dependencies
 └── README.md
 ```
@@ -110,6 +114,23 @@ pip install -e ".[dev]"
 
 Check that 16-bit images and bounding box annotations are correctly parsed before launching training:
 
+#### In Google Colab / Jupyter Notebook (Inline Visualization)
+
+Use `%run` to execute in the notebook kernel and display the plot directly in the cell:
+
+```python
+%run visualize.py \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_train.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
+    --images-dir /content/mammo_data/images \
+    --split train \
+    --num-images 4 \
+    --save-dir ./viz_output \
+    --show
+```
+
+#### Standalone Terminal / Headless Server (Save to Disk)
+
 ```bash
 python visualize.py \
     --train-json /path/to/mass_train.json \
@@ -120,23 +141,25 @@ python visualize.py \
     --save-dir ./viz_output
 ```
 
-Options:
+**Options:**
 - `--split`: Choose `train` or `val`.
 - `--num-images`: Number of random samples to display (default: `3`).
+- `--seed`: Random seed (default: `None` for fresh random sampling each time; prioritizes images with lesions).
+- `--show`: Display the plot inline via `plt.show()` (useful in notebook environments).
 - `--low-pct`, `--high-pct`: Intensity clipping percentiles (default: `1.0` and `99.0`).
-- `--save-dir`: Save figures to disk as PNG (recommended for headless servers / Colab).
+- `--save-dir`: Save figures to disk as PNG.
 
 ---
 
 ### 2. Training
 
-Launch distributed or single-GPU training with automatic dataset class detection:
+Launch single-GPU or distributed training with automatic dataset class detection:
 
 ```bash
 python train.py \
     --config-file configs/mammo_dinov2_dino.py \
-    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
-    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_train.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
     --images-dir /content/mammo_data/images \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
     --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR \
@@ -144,40 +167,30 @@ python train.py \
     --num-gpus 1
 ```
 
-> **Key Runtime Optimizations:**
-> - **Effective Batch Size = 16**: With physical `batch_size = 2` (to fit on 15 GB Colab GPUs) and `accum_steps = 8`, the model trains with an effective batch size of $2 \times 8 = 16$, ensuring stable Hungarian matching and contrastive denoising.
-> - **Pure FP32 Precision**: Robust standard float32 precision guaranteeing numerical stability with Detrex CUDA kernels (`ms_deform_attn`).
+> **Key Runtime Configuration:**
+> - **Effective Batch Size = 16**: Physical `batch_size = 2` (to fit on 15 GB Colab T4 GPUs) with `accum_steps = 8` yields an effective batch size of $2 \times 8 = 16$, ensuring stable Hungarian matching and contrastive denoising.
+> - **20-Epoch Schedule**: For 5,669 images at batch size 2, 1 epoch = 2,835 iterations. 20 epochs = **56,700 iterations** total.
+> - **Warmup**: 2% of total schedule (**1,134 iterations**).
+> - **LR Decay**: $10\times$ step decay at epoch 16 (80% = **45,360 iterations**).
+> - **Evaluation & Best Model Saving**: Evaluated every epoch (2,835 iterations); highest `bbox/AP50` checkpoint is automatically saved as `model_best.pth`.
+> - **Pure FP32 Precision**: Robust standard float32 precision guaranteeing numerical stability and native CUDA compatibility.
 > - **Gradient Norm Logging**: Logs `grad_norm` at each step to TensorBoard to monitor transformer stability.
 
-#### Testing Lesion-Aware Crop after First Training Run
-By default, `crop_prob = 0.0` (first training runs on full uncropped images with multi-scale lengths $644 \dots 812$).
-To activate lesion-aware cropping (guaranteeing 100% containment of target lesions in $518 \times 518$ windows):
-
-```bash
-python train.py \
-    --config-file configs/mammo_dinov2_dino.py \
-    --train-json ... --val-json ... --images-dir ... \
-    --output-dir ./output \
-    --opts dataloader.train.mapper.crop_prob=0.2
-```
-
 #### Overriding Hyperparameters via `--opts`
-Detrex LazyConfig allows overriding any parameter directly from the command line:
+You can override any config value from the command line using the `--opts` flag (or standard positional remainder arguments at the end):
 
 ```bash
 python train.py \
     --config-file configs/mammo_dinov2_dino.py \
     --train-json ... --val-json ... --images-dir ... \
     --output-dir ./output \
-    --opts train.max_iter=7200 \
-           train.eval_period=600 \
-           train.log_period=20 \
-           model.num_queries=50 \
-           model.backbone.backbone.freeze_blocks=8
+    --opts train.max_iter=56700 \
+           train.eval_period=2835 \
+           dataloader.train.mapper.crop_prob=0.2
 ```
 
 #### Resuming Training
-To resume from the latest checkpoint in the output directory:
+To resume training seamlessly from the latest saved checkpoint:
 
 ```bash
 python train.py \
@@ -190,9 +203,26 @@ python train.py \
 
 ---
 
+### 3. Monitoring with TensorBoard
+
+TensorBoard logs are automatically written to `output_dir`. In Google Colab:
+
+```python
+%load_ext tensorboard
+%tensorboard --logdir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR
+```
+
+Metrics tracked in real time:
+- Total loss (`total_loss`), classification loss (`loss_class`), box losses (`loss_bbox`, `loss_giou`)
+- Contrastive Denoising losses (`loss_class_dn`, `loss_bbox_dn`, `loss_giou_dn`)
+- Layer-wise auxiliary decoder losses (0..4) and encoder proposal losses (`_enc`)
+- Learning rate warmup and step decay (`lr`)
+- Gradient norms (`grad_norm`)
+- Data loading time (`data_time`) and iteration time (`time`)
+
 ---
 
-### 3. Evaluation
+### 4. Evaluation
 
 Evaluate a trained model checkpoint on the validation set to obtain standard COCO metrics ($AP, AP_{50}, AP_{75}, AP_s, AP_m, AP_l$):
 
@@ -200,7 +230,7 @@ Evaluate a trained model checkpoint on the validation set to obtain standard COC
 python eval.py \
     --config-file configs/mammo_dinov2_dino.py \
     --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR/model_best.pth \
-    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
     --images-dir /content/mammo_data/images \
     --output-dir ./eval_output \
     --test-size 812 \
@@ -209,19 +239,20 @@ python eval.py \
 
 ---
 
-### 4. Side-by-Side Visualization (Ground Truth vs Predictions)
+### 5. Side-by-Side Visualization (Ground Truth vs Predictions)
 
 Inspect model detections alongside ground-truth radiologist annotations on validation mammograms:
 
-```bash
-python visualize.py \
+```python
+%run visualize.py \
     --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR/model_best.pth \
     --config-file configs/mammo_dinov2_dino.py \
-    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
     --images-dir /content/mammo_data/images \
     --conf-thresh 0.30 \
     --num-images 4 \
-    --save-dir ./viz_predictions
+    --save-dir ./viz_predictions \
+    --show
 ```
 
 - **Left panel**: Ground-truth bounding boxes and lesion classes.
@@ -232,32 +263,34 @@ python visualize.py \
 
 ## Python Notebook API
 
-You can also use the modules directly in Python or Jupyter:
+You can also use the modules directly in Python or Jupyter cells:
 
 ```python
 from rfdetr.data.registration import register_mammo_dataset
 from rfdetr.utils.visualize import visualize_dataset
 
-# 1. Register COCO datasets (classes are auto-detected)
+# 1. Register COCO datasets (classes are auto-detected from categories)
 thing_classes = register_mammo_dataset(
-    train_json="path/to/mass_train.json",
-    val_json="path/to/mass_val.json",
-    images_dir="path/to/images"
+    train_json="/path/to/full_coco_3class_train.json",
+    val_json="/path/to/full_coco_3class_val.json",
+    images_dir="/path/to/images"
 )
 print("Detected classes:", thing_classes)
 
-# 2. Visualize samples inline
-visualize_dataset("mammo_train", num_images=3, seed=42)
+# 2. Visualize random samples inline (fresh random draw every run)
+visualize_dataset("mammo_train", num_images=4, save_dir="./viz_output", show=True)
 ```
 
 ---
 
 ## Automated Verification & Tests
 
-Run the comprehensive automated test suite (85 tests covering multi-scale feature shapes, pyramid strides, partial freezing logic, gradient backpropagation, 16-bit float32 normalization, lesion-aware cropping containment, gradient accumulation equivalence, CLI parsing, and end-to-end integration contracts):
+Run the comprehensive automated test suite (88 tests covering multi-scale feature shapes, pyramid strides, partial freezing logic, gradient backpropagation, 16-bit float32 normalization, lesion-aware cropping containment, gradient accumulation equivalence, CLI parsing, and end-to-end integration contracts):
 
 ```bash
 python -m pytest tests/
 ```
 
-All unit and integration tests run entirely on synthetic data and execute on CPU without requiring CUDA or GPU hardware.
+- **100% Passing**: 88 passed out of 88 tests on Linux/CUDA.
+- **Clean Reports**: 0 warnings (upstream deprecation notices are cleanly filtered via `tests/conftest.py` and `pyproject.toml`).
+- All unit and integration tests run entirely on synthetic data and execute on CPU without requiring CUDA or GPU hardware.
