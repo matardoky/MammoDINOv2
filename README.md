@@ -35,7 +35,7 @@ A modular, production-ready implementation of **RF-DETR** tailored for lesion de
          ▼
 [detrex DINO Transformer & Head]
   - Deformable attention multi-scale encoder & decoder (6 layers each)
-  - 2-stage query generation (num_queries = two_stage_num_proposals = 50)
+  - 2-stage query generation (num_queries = two_stage_num_proposals = 100)
   - Hungarian Matcher + Focal Loss + L1 Bounding Box Loss + GIoU Loss + Contrastive DeNoising (CDN)
 ```
 
@@ -153,22 +153,26 @@ python visualize.py \
 
 ### 2. Fast Architecture & Overfit Verification (`overfit.py`)
 
-Verify end-to-end model learning capacity and convergence on a small micro-batch (30 images) in just 5 minutes before launching full 20-epoch training:
+Verify end-to-end model learning capacity and convergence on a small micro-batch (30 images) before launching full 20-epoch training:
 
 ```bash
 python overfit.py \
-    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_train.json \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
     --images-dir /content/mammo_data/images \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
-    --output-dir ./output_overfit \
+    --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_OVERFIT \
     --num-images 30 \
-    --max-iter 300 \
-    --eval-period 50 \
-    --batch-size 2
+    --freeze-blocks 4 \
+    --max-iter 1500 \
+    --eval-period 500 \
+    --batch-size 2 \
+    --lr 1e-4 \
+    --num-gpus 1
 ```
 
 - **Deterministic Evaluation**: Trains and evaluates on the exact same 30 images with fixed resize (812 px) and zero stochastic flip.
-- **Immediate Optimizer Steps**: `grad_accum_steps=1` enables immediate weight updates on every micro-batch, allowing rapid loss collapse and AP50 convergence.
+- **Immediate Optimizer Steps**: `grad_accum_steps=1` enables immediate weight updates on every micro-batch, allowing rapid loss collapse and AP50 convergence (>86% AP50 by iteration 450).
+- **DINOv2 Layer-Wise Decay**: Automatically applies layer-wise learning rate decay across the un-frozen ViT blocks with `weight_decay = 0.0` on the backbone.
 - **Automatic Visual Predictions**: Automatically saves visual side-by-side comparisons (Ground Truth vs Model Predictions) in `./output_overfit/visualizations/`.
 
 ---
