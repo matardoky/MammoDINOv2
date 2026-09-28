@@ -99,15 +99,21 @@ def test_overfit_cli_help():
 # ─── 2. Optimizer Parameter Grouping Logic ────────────────────────────────────
 
 def test_optimizer_parameter_groups_logic():
-    """Verify that lr_factor_func scales backbone LR by 0.1x while keeping detector at 1.0x."""
-    lr_factor_func = lambda module_name: 0.1 if "backbone" in module_name else 1.0
+    """Verify that lr_factor_func scales backbone ViT LR by 0.1x while keeping projector and detector at 1.0x."""
+    lr_factor_func = lambda module_name: 1.0 if "projector" in module_name else (
+        0.1 if ("backbone.backbone" in module_name or "backbone.vit" in module_name) else 1.0
+    )
 
-    # Backbone modules (standard and DDP-prefixed)
+    # Backbone ViT modules (standard and DDP-prefixed) get 0.1x
     assert lr_factor_func("backbone.backbone.vit.blocks.0") == 0.1
     assert lr_factor_func("module.backbone.backbone.vit.blocks.11") == 0.1
-    assert lr_factor_func("backbone.projector.stages.0") == 0.1
+    assert lr_factor_func("backbone.vit.blocks.0") == 0.1
 
-    # Non-backbone modules (neck, transformer, heads)
+    # MultiScaleProjector modules MUST receive full 1.0x LR (not 0.1x!)
+    assert lr_factor_func("backbone.projector.stages.0") == 1.0
+    assert lr_factor_func("module.backbone.projector.stages.2") == 1.0
+
+    # Non-backbone modules (neck, transformer, heads) get 1.0x
     assert lr_factor_func("neck.conv") == 1.0
     assert lr_factor_func("module.neck.conv") == 1.0
     assert lr_factor_func("transformer.encoder.layers.0") == 1.0

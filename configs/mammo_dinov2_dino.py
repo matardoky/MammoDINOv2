@@ -141,30 +141,31 @@ model = L(DINO)(
         two_stage_num_proposals=50,
     ),
 
-    # ── Criterion (detrex-native, adapted for EMBED loose annotations) ───────
+    # ── Criterion (detrex-native standard DINO weights) ─────────────────────
     criterion=L(DINOCriterion)(
         num_classes=_NUM_CLASSES,   # auto-set at runtime from dataset JSON
         matcher=L(HungarianMatcher)(
             cost_class=2.0,
-            cost_bbox=2.0,  # Adjusted from 5.0: avoid rejecting tight lesion predictions against loose Emory circles
+            cost_bbox=5.0,
             cost_giou=2.0,
             cost_class_type="focal_loss_cost",
             alpha=0.25,
-            gamma=2.5,  # Focus matching cost on minority / harder lesions (ArchDistortion)
+            gamma=2.0,
         ),
         weight_dict={
-            "loss_class": 2.0,       # Increased from 1.0: prioritize correct semantic lesion identification
-            "loss_bbox": 2.0,        # Reduced from 5.0: prevent forcing boxes to artificially over-expand to match loose boundaries
-            "loss_giou": 2.0,        # Preserved: rewards containment and IoU overlap with the lesion ROI
-            "loss_class_dn": 2.0,
-            "loss_bbox_dn": 2.0,
+            "loss_class": 1.0,
+            "loss_bbox": 5.0,
+            "loss_giou": 2.0,
+            "loss_class_dn": 1.0,
+            "loss_bbox_dn": 5.0,
             "loss_giou_dn": 2.0,
         },
         losses=["class", "boxes"],
         eos_coef=0.1,
         loss_class_type="focal_loss",
         alpha=0.25,
-        gamma=2.5,      # Focus gradients on minority / harder lesions (ArchDistortion ~7%)
+        gamma=2.0,
+        two_stage_binary_cls=False,
     ),
 
     # ── Misc ─────────────────────────────────────────────────────────────────
@@ -262,6 +263,7 @@ dataloader.test = L(build_detection_test_loader)(
 dataloader.evaluator = L(COCOEvaluator)(
     dataset_name="mammo_val",
     output_dir="${train.output_dir}/eval",
+    use_fast_impl=False,
 )
 
 
@@ -271,7 +273,7 @@ optimizer = L(torch.optim.AdamW)(
     params=L(get_default_optimizer_params)(
         base_lr="${..lr}",
         weight_decay_norm=0.0,
-        lr_factor_func=lambda module_name: 0.1 if "backbone" in module_name else 1.0,
+        lr_factor_func=lambda module_name: 1.0 if "projector" in module_name else (0.1 if ("backbone.backbone" in module_name or "backbone.vit" in module_name) else 1.0),
     ),
     lr=1e-4,
     betas=(0.9, 0.999),
