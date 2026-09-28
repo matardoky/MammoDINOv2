@@ -65,7 +65,7 @@ def build_arg_parser():
     parser.add_argument("--images-dir",      required=True, help="Root directory for images")
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to pretrained DINOv2 weights (.pth)")
     parser.add_argument("--output-dir",      default="./output_overfit", help="Output directory for checkpoints and logs")
-    parser.add_argument("--config-file",     default="configs/mammo_dinov2_dino.py", help="Base LazyConfig file")
+    parser.set_defaults(config_file="configs/mammo_dinov2_dino.py")
     parser.add_argument("--num-images",      type=int, default=30, help="Number of images in overfit subset (default: 30)")
     parser.add_argument("--max-iter",        type=int, default=400, help="Total training iterations (default: 400)")
     parser.add_argument("--eval-period",     type=int, default=50, help="Evaluation and checkpoint period (default: 50)")
