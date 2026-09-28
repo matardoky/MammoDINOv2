@@ -96,7 +96,7 @@ model.backbone = L(BackboneProjectorWrapper)(
         checkpoint_path=None,          # set via train.py --dinov2-weights
         model_name="vit_small_patch14_dinov2.lvd142m",
         pretrained=False,
-        freeze_blocks=2,               # freeze first 2 blocks for memory efficiency; 10 learnable
+        freeze_blocks=0,               # 0 = all 12 blocks unfrozen for end-to-end representation learning
         grad_checkpointing=True,       # memory optimization for ViT
         out_features=["block3", "block6", "block9", "block12"],
     ),

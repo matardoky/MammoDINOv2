@@ -77,7 +77,7 @@ def build_arg_parser():
     parser.add_argument("--seed",            type=int, default=42, help="Random seed for subset sampling (default: 42)")
     parser.add_argument("--visualize-after", action="store_true", default=True, help="Produce visual GT vs prediction comparison at end")
     parser.add_argument("--detrex-root",     default=_default_detrex, help="Path to detrex clone")
-    parser.add_argument("--freeze-blocks",   type=int, default=2, help="Number of DINOv2 blocks to freeze (default: 2)")
+    parser.add_argument("--freeze-blocks",   type=int, default=0, help="Number of DINOv2 blocks to freeze (default: 0 = all layers unfrozen)")
     parser.add_argument("--num-queries",     type=int, default=100, help="Number of object queries in DINO (default: 100)")
     parser.add_argument("--dn-number",       type=int, default=10, help="Number of denoising query groups (default: 10)")
     parser.add_argument("--clip-grad-norm",  type=float, default=0.1, help="Maximum gradient norm for clipping (default: 0.1)")

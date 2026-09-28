@@ -51,7 +51,7 @@ class DINOv2MultiScaleBackbone(Backbone):
         checkpoint_path: Optional path to a pretrained teacher checkpoint (.pth).
         model_name: timm model architecture name (default: "vit_small_patch14_dinov2.lvd142m").
         pretrained: Whether to load timm's default pretrained weights (default: False).
-        freeze_blocks: Number of initial transformer blocks to freeze (0 to 12, default: 2).
+        freeze_blocks: Number of initial transformer blocks to freeze (0 to 12, default: 0 = all unfrozen).
         out_features: Names of intermediate output feature keys.
     """
 
@@ -62,7 +62,7 @@ class DINOv2MultiScaleBackbone(Backbone):
         checkpoint_path: Optional[str] = None,
         model_name: str = "vit_small_patch14_dinov2.lvd142m",
         pretrained: bool = False,
-        freeze_blocks: int = 2,
+        freeze_blocks: int = 0,
         out_features: Sequence[str] = ("block3", "block6", "block9", "block12"),
         grad_checkpointing: bool = True,
         norm_intermediates: bool = False,

@@ -287,8 +287,8 @@ def build_arg_parser():
                         help="Gradient accumulation steps (default: from config or 1)")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
-    parser.add_argument("--freeze-blocks",   type=int, default=2,
-                        help="Number of initial DINOv2 blocks to freeze (default: 2)")
+    parser.add_argument("--freeze-blocks",   type=int, default=0,
+                        help="Number of initial DINOv2 blocks to freeze (default: 0 = all layers unfrozen)")
     parser.add_argument("--num-queries",     type=int, default=None,
                         help="Number of object queries in DINO (default: 100 from config)")
     parser.add_argument("--dn-number",       type=int, default=None,

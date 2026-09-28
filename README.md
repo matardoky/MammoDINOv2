@@ -162,7 +162,7 @@ python overfit.py \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
     --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_OVERFIT \
     --num-images 30 \
-    --freeze-blocks 4 \
+    --freeze-blocks 0 \
     --max-iter 1500 \
     --eval-period 500 \
     --batch-size 2 \
@@ -170,9 +170,10 @@ python overfit.py \
     --num-gpus 1
 ```
 
+- **Fully Unfrozen Backbone**: `--freeze-blocks 0` unfreezes all 12 DINOv2 ViT blocks and patch embeddings (22.06M trainable parameters), enabling complete representation fine-tuning with activation gradient checkpointing.
 - **Deterministic Evaluation**: Trains and evaluates on the exact same 30 images with fixed resize (812 px) and zero stochastic flip.
 - **Immediate Optimizer Steps**: `grad_accum_steps=1` enables immediate weight updates on every micro-batch, allowing rapid loss collapse and AP50 convergence (>86% AP50 by iteration 450).
-- **DINOv2 Layer-Wise Decay**: Automatically applies layer-wise learning rate decay across the un-frozen ViT blocks with `weight_decay = 0.0` on the backbone.
+- **DINOv2 Layer-Wise Decay**: Automatically applies layer-wise learning rate decay across all 12 ViT blocks (depth 12 down to depth 1 and stem) with `weight_decay = 0.0` on the backbone.
 - **Automatic Visual Predictions**: Automatically saves visual side-by-side comparisons (Ground Truth vs Model Predictions) in `./output_overfit/visualizations/`.
 
 ---
