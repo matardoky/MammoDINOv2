@@ -76,6 +76,7 @@ def build_arg_parser():
     parser.add_argument("--seed",            type=int, default=42, help="Random seed for subset sampling (default: 42)")
     parser.add_argument("--visualize-after", action="store_true", default=True, help="Produce visual GT vs prediction comparison at end")
     parser.add_argument("--detrex-root",     default=_default_detrex, help="Path to detrex clone")
+    parser.add_argument("--freeze-blocks",   type=int, default=0, help="Number of DINOv2 blocks to freeze (default: 0 = fully unfrozen)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Optional config overrides (e.g. --opts train.max_iter=500)")
     return parser
@@ -129,6 +130,11 @@ def main(args):
     cfg.train.output_dir = str(output_dir)
     if args.dinov2_weights:
         cfg.model.backbone.backbone.checkpoint_path = args.dinov2_weights
+
+    # Inject freeze_blocks (0 = fully unfrozen)
+    if hasattr(args, "freeze_blocks") and args.freeze_blocks is not None:
+        cfg.model.backbone.backbone.freeze_blocks = args.freeze_blocks
+        logger.info(f"Backbone freeze_blocks set to: {args.freeze_blocks} (0 = fully unfrozen)")
 
     # Inject learning rate into optimizer
     if hasattr(cfg, "optimizer"):

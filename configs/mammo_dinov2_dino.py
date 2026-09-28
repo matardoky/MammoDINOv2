@@ -75,7 +75,7 @@ model = L(DINO)(
             checkpoint_path=None,          # set via train.py --dinov2-weights
             model_name="vit_small_patch14_dinov2.lvd142m",
             pretrained=False,
-            freeze_blocks=8,
+            freeze_blocks=0,
             out_features=["block3", "block6", "block9", "block12"],
         ),
         projector=L(MultiScaleProjector)(

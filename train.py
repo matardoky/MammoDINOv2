@@ -287,6 +287,8 @@ def build_arg_parser():
                         help="Gradient accumulation steps (default: from config or 1)")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
+    parser.add_argument("--freeze-blocks",   type=int, default=0,
+                        help="Number of initial DINOv2 blocks to freeze (default: 0 = fully unfrozen)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Modify config options using key=value (e.g. --opts dataloader.train.mapper.crop_prob=0.2)")
     return parser
@@ -324,6 +326,11 @@ def main(args):
     # Inject DINOv2 weights path into config
     if args.dinov2_weights:
         cfg.model.backbone.backbone.checkpoint_path = args.dinov2_weights
+
+    # Inject freeze_blocks (0 = fully unfrozen)
+    if hasattr(args, "freeze_blocks") and args.freeze_blocks is not None:
+        cfg.model.backbone.backbone.freeze_blocks = args.freeze_blocks
+        logger.info(f"Backbone freeze_blocks set to: {args.freeze_blocks}")
 
     # Inject output dir
     if getattr(args, "output_dir", None):

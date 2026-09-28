@@ -156,7 +156,21 @@ class DINOv2MultiScaleBackbone(Backbone):
             )
 
     def _apply_partial_freeze(self) -> None:
-        """Freeze the first N blocks while keeping upper blocks and LayerNorm trainable."""
+        """Freeze the first N blocks while keeping upper blocks and LayerNorm trainable.
+
+        If freeze_blocks == 0, no layers are frozen; all parameters (including patch_embed
+        and pos_embed) remain fully trainable for end-to-end fine-tuning.
+        """
+        if self.freeze_blocks == 0:
+            for p in self.vit.parameters():
+                p.requires_grad = True
+            n_total = sum(p.numel() for p in self.vit.parameters())
+            logger.info(
+                f"[DINOv2] Fully unfrozen (freeze_blocks=0): all {self.n_blocks} blocks "
+                f"and embeddings are trainable ({n_total / 1e6:.2f}M params)."
+            )
+            return
+
         for p in self.vit.parameters():
             p.requires_grad = False
         for i, blk in enumerate(self.vit.blocks):
