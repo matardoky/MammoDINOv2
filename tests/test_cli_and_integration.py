@@ -77,6 +77,24 @@ def test_visualize_cli_help():
     assert "--num-images" in stdout
 
 
+def test_overfit_cli_help():
+    """Verify overfit.py parses CLI arguments and outputs expected parameters."""
+    pytest.importorskip("detectron2", reason="detectron2 required to run overfit.py CLI parser")
+    res = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "overfit.py"), "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    assert res.returncode == 0, f"overfit.py --help failed with: {res.stderr}"
+    stdout = res.stdout
+    assert "--train-json" in stdout
+    assert "--images-dir" in stdout
+    assert "--num-images" in stdout
+    assert "--max-iter" in stdout
+    assert "--eval-period" in stdout
+
+
 # ─── 2. Optimizer Parameter Grouping Logic ────────────────────────────────────
 
 def test_optimizer_parameter_groups_logic():

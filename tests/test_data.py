@@ -446,3 +446,28 @@ def test_coco_contiguous_id_mapping_logic(synthetic_coco_json):
     assert min(remapped_ids) >= 0
     assert set(remapped_ids).issubset({0, 1, 2})
 
+
+def test_create_overfit_subset_logic(synthetic_coco_json, tmp_dir):
+    """Verify scripts/create_overfit_subset.py creates a valid balanced subset."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from create_overfit_subset import create_overfit_subset
+
+    out_json = os.path.join(tmp_dir, "subset_out.json")
+    subset = create_overfit_subset(
+        input_json=synthetic_coco_json,
+        output_json=out_json,
+        num_images=2,
+        seed=123,
+    )
+    assert os.path.isfile(out_json)
+    assert len(subset["images"]) == 2
+    assert len(subset["annotations"]) > 0
+    assert len(subset["categories"]) == 3
+    # Check that annotations reference only the sampled images
+    img_ids = {img["id"] for img in subset["images"]}
+    for ann in subset["annotations"]:
+        assert ann["image_id"] in img_ids
+
+

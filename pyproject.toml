@@ -51,6 +51,7 @@ dev = [
 [project.scripts]
 rfdetr-train = "train:main"
 rfdetr-eval = "eval:main"
+rfdetr-overfit = "overfit:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
