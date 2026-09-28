@@ -93,25 +93,6 @@ def test_overfit_cli_help():
     assert "--num-images" in stdout
     assert "--max-iter" in stdout
     assert "--eval-period" in stdout
-    assert "--freeze-blocks" in stdout
-
-
-def test_overfit_deterministic_transforms_and_loss_weights_logic():
-    """Verify overfit logic forces deterministic transforms, crop_prob=0, and strong box loss."""
-    # Simulated config dict mimicking LazyConfig structure
-    from unittest.mock import MagicMock
-    cfg = MagicMock()
-    cfg.model.criterion.matcher.cost_bbox = 2.0
-    cfg.model.criterion.weight_dict = {"loss_class": 2.0, "loss_bbox": 2.0, "loss_giou": 2.0}
-
-    # Simulate overfit adjustments
-    cfg.model.criterion.matcher.cost_bbox = 5.0
-    for k in list(cfg.model.criterion.weight_dict.keys()):
-        if "loss_bbox" in k:
-            cfg.model.criterion.weight_dict[k] = 5.0
-
-    assert cfg.model.criterion.matcher.cost_bbox == 5.0
-    assert cfg.model.criterion.weight_dict["loss_bbox"] == 5.0
 
 
 

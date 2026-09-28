@@ -73,7 +73,6 @@ def build_arg_parser():
     parser.add_argument("--log-period",      type=int, default=10, help="Logging period (default: 10)")
     parser.add_argument("--batch-size",      type=int, default=2, help="Physical batch size (default: 2)")
     parser.add_argument("--lr",              type=float, default=1e-4, help="Base learning rate (default: 1e-4)")
-    parser.add_argument("--freeze-blocks",   type=int, default=0, help="Number of DINOv2 ViT blocks to freeze (default: 0 for overfit)")
     parser.add_argument("--seed",            type=int, default=42, help="Random seed for subset sampling (default: 42)")
     parser.add_argument("--visualize-after", action="store_true", default=True, help="Produce visual GT vs prediction comparison at end")
     parser.add_argument("--detrex-root",     default=_default_detrex, help="Path to detrex clone")
@@ -135,40 +134,14 @@ def main(args):
     if hasattr(cfg, "optimizer"):
         cfg.optimizer.lr = args.lr
 
-    # Inject image directory into mappers and enforce static deterministic transforms for overfit
+    # Inject image directory into mappers — keeping exact training transforms and resize intact
     if hasattr(cfg, "dataloader"):
-        static_transforms = [
-            L(T.ResizeShortestEdge)(
-                short_edge_length=(812,),
-                max_size=1624,
-                sample_style="choice",
-            )
-        ]
         if hasattr(cfg.dataloader, "train") and hasattr(cfg.dataloader.train, "mapper"):
             cfg.dataloader.train.mapper.images_fallback_dir = args.images_dir
-            cfg.dataloader.train.mapper.crop_prob = 0.0  # Full uncropped images for clean overfit test
-            cfg.dataloader.train.mapper.augmentation = static_transforms
-            cfg.dataloader.train.mapper.augmentation_with_crop = None
+            cfg.dataloader.train.mapper.crop_prob = 0.0  # Full uncropped images for clean validation
             cfg.dataloader.train.total_batch_size = args.batch_size
         if hasattr(cfg.dataloader, "test") and hasattr(cfg.dataloader.test, "mapper"):
             cfg.dataloader.test.mapper.images_fallback_dir = args.images_dir
-            cfg.dataloader.test.mapper.augmentation = static_transforms
-            cfg.dataloader.test.mapper.augmentation_with_crop = None
-
-    # Backbone freeze control (default: 0 to maximize learning capacity for overfit)
-    if hasattr(cfg.model, "backbone") and hasattr(cfg.model.backbone, "backbone"):
-        cfg.model.backbone.backbone.freeze_blocks = args.freeze_blocks
-
-    # Box regression weights: restore standard DETR 5.0 box loss & cost for sharp spatial locking
-    if hasattr(cfg.model, "criterion"):
-        if hasattr(cfg.model.criterion, "matcher"):
-            cfg.model.criterion.matcher.cost_bbox = 5.0
-            cfg.model.criterion.matcher.cost_giou = 2.0
-            cfg.model.criterion.matcher.cost_class = 2.0
-        if hasattr(cfg.model.criterion, "weight_dict"):
-            for k in list(cfg.model.criterion.weight_dict.keys()):
-                if "loss_bbox" in k:
-                    cfg.model.criterion.weight_dict[k] = 5.0
 
     # Overfit runtime parameters: fast steps without gradient accumulation delay
     cfg.train.max_iter = args.max_iter
