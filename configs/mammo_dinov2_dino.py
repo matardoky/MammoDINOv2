@@ -12,7 +12,7 @@ Structure:
       * dataloader: train and test loaders with Mammo16BitMapper (16-bit uint16)
       * optimizer: AdamW with weight decay
       * lr_multiplier: WarmupParamScheduler with MultiStep decay
-      * train: training hyperparameters (iterations, eval_period, AMP, clip_grad)
+      * train: training hyperparameters (iterations, eval_period, clip_grad)
 
 num_classes:
   NOT hardcoded here. Set to -1 as a sentinel value.

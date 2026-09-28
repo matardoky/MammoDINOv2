@@ -60,3 +60,10 @@ include = ["rfdetr*"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore:.*torch\\.cuda\\.amp\\.custom_.*:FutureWarning",
+    "ignore:.*timm\\.models\\.layers.*:FutureWarning",
+    "ignore:.*pkg_resources is deprecated.*:UserWarning",
+    "ignore:.*detectron2\\.layers\\.dcn_v3.*:FutureWarning",
+    "ignore::FutureWarning:detrex.*",
+]

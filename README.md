@@ -141,13 +141,12 @@ python train.py \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
     --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR \
     --accum-steps 8 \
-    --amp-dtype auto \
     --num-gpus 1
 ```
 
 > **Key Runtime Optimizations:**
 > - **Effective Batch Size = 16**: With physical `batch_size = 2` (to fit on 15 GB Colab GPUs) and `accum_steps = 8`, the model trains with an effective batch size of $2 \times 8 = 16$, ensuring stable Hungarian matching and contrastive denoising.
-> - **Mixed Precision (`--amp-dtype auto`)**: Automatically uses `bfloat16` on modern GPUs (A100, L4) without loss scaler overhead, and safely falls back to `float16` with `GradScaler` on T4 / V100.
+> - **Pure FP32 Precision**: Robust standard float32 precision guaranteeing numerical stability with Detrex CUDA kernels (`ms_deform_attn`).
 > - **Gradient Norm Logging**: Logs `grad_norm` at each step to TensorBoard to monitor transformer stability.
 
 #### Testing Lesion-Aware Crop after First Training Run

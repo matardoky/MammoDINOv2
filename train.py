@@ -2,7 +2,7 @@
 """train.py — Mammography DINO detection training launcher.
 
 Thin wrapper around detrex's training infrastructure.
-All training logic (SimpleTrainer, AMPTrainer, checkpointing, LR scheduling,
+All training logic (SimpleTrainer, checkpointing, LR scheduling,
 evaluation hooks, distributed launch) is handled by detrex / detectron2 directly.
 
 Usage (single GPU):
