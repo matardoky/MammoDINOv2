@@ -133,8 +133,8 @@ model.transformer.decoder.use_checkpoint = True
 # ─── 4. Mammography Lesion Detection Hyperparameters ────────────────────────
 model.embed_dim = 256                  # embed_dim=256 latent dimension
 model.num_classes = _NUM_CLASSES       # auto-patched at runtime from dataset JSON
-model.num_queries = 100                # 100 queries provide double the spatial candidate density on high-res mammograms
-model.dn_number = 10                   # 10 CDN denoising query groups accelerating Hungarian bipartite matching
+model.num_queries = 50                 # 50 queries: optimal signal-to-noise ratio for sparse mammography lesions
+model.dn_number = 6                    # 6 CDN denoising groups matching reference implementation
 model.pixel_mean = [0.3192, 0.3192, 0.3192]
 model.pixel_std = [0.2603, 0.2603, 0.2603]
 model.select_box_nums_for_evaluation = model.num_queries

@@ -287,7 +287,7 @@ def test_mammo_config_dino_inheritance():
     assert "model.transformer.num_feature_levels = 4" in content
     assert "model.transformer.encoder.use_checkpoint = True" in content
     assert "model.transformer.decoder.use_checkpoint = True" in content
-    assert "model.num_queries = 100" in content
+    assert "model.num_queries = 50" in content
     assert "model.embed_dim = 256" in content
     assert "model.select_box_nums_for_evaluation = model.num_queries" in content
 
@@ -323,9 +323,9 @@ def test_mammo_config_dino_inheritance():
     assert model.transformer.num_feature_levels == 4
     assert model.transformer.encoder.use_checkpoint is True
     assert model.transformer.decoder.use_checkpoint is True
-    assert model.num_queries == 100
+    assert model.num_queries == 50
     assert model.embed_dim == 256
-    assert model.select_box_nums_for_evaluation == 100
+    assert model.select_box_nums_for_evaluation == 50
 
 
 def test_dinov2_optimizer_params():

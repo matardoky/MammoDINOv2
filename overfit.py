@@ -78,8 +78,8 @@ def build_arg_parser():
     parser.add_argument("--visualize-after", action="store_true", default=True, help="Produce visual GT vs prediction comparison at end")
     parser.add_argument("--detrex-root",     default=_default_detrex, help="Path to detrex clone")
     parser.add_argument("--freeze-blocks",   type=int, default=2, help="Number of DINOv2 blocks to freeze (default: 2)")
-    parser.add_argument("--num-queries",     type=int, default=100, help="Number of object queries in DINO (default: 100)")
-    parser.add_argument("--dn-number",       type=int, default=10, help="Number of denoising query groups (default: 10)")
+    parser.add_argument("--num-queries",     type=int, default=50, help="Number of object queries in DINO (default: 50)")
+    parser.add_argument("--dn-number",       type=int, default=6, help="Number of denoising query groups (default: 6)")
     parser.add_argument("--clip-grad-norm",  type=float, default=0.1, help="Maximum gradient norm for clipping (default: 0.1)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Optional config overrides (e.g. --opts train.max_iter=500)")
