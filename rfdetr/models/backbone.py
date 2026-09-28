@@ -204,6 +204,7 @@ class DINOv2MultiScaleBackbone(Backbone):
         intermediates = self.vit.forward_intermediates(
             x,
             indices=self.BLOCK_INDICES,
+            norm=True,
             output_fmt="NCHW",
             intermediates_only=True,
         )

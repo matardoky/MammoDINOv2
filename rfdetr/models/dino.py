@@ -15,7 +15,7 @@ See: https://github.com/IDEA-Research/detrex/tree/main/projects/dino
 """
 
 try:
-    from detrex.modeling.models import DINO
+    from projects.dino.modeling import DINO
 except ImportError:
     raise ImportError(
         "detrex is required for the DINO detection head. "

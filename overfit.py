@@ -54,7 +54,7 @@ from detectron2.solver import WarmupParamScheduler
 from fvcore.common.param_scheduler import MultiStepParamScheduler
 
 from create_overfit_subset import create_overfit_subset
-from rfdetr.data.registration import register_mammo_dataset, get_classes_from_json
+from rfdetr.data.registration import register_mammo_dataset
 from train import do_train
 
 logger = logging.getLogger("mammo_overfit")
@@ -75,7 +75,6 @@ def build_arg_parser():
     parser.add_argument("--lr",              type=float, default=1e-4, help="Base learning rate (default: 1e-4)")
     parser.add_argument("--seed",            type=int, default=42, help="Random seed for subset sampling (default: 42)")
     parser.add_argument("--visualize-after", action="store_true", default=True, help="Produce visual GT vs prediction comparison at end")
-    parser.add_argument("--force-subset",    action="store_true", default=False, help="Force regenerating overfit subset even if cached file exists")
     parser.add_argument("--detrex-root",     default=_default_detrex, help="Path to detrex clone")
     parser.add_argument("--freeze-blocks",   type=int, default=2, help="Number of DINOv2 blocks to freeze (default: 2)")
     parser.add_argument("--clip-grad-norm",  type=float, default=1.0, help="Maximum gradient norm for clipping (default: 1.0)")
@@ -96,27 +95,7 @@ def main(args):
 
     # ── Step 1: Create or reuse balanced overfit micro-subset ────────────────
     subset_json = output_dir / f"overfit_subset_{args.num_images}.json"
-    recreate = getattr(args, "force_subset", False)
-
-    if not recreate and subset_json.is_file():
-        try:
-            cached_classes = get_classes_from_json(str(subset_json))
-            source_classes = get_classes_from_json(args.train_json)
-            if cached_classes == source_classes:
-                logger.info(f"Reusing existing overfit subset: {subset_json} (classes: {cached_classes})")
-            else:
-                logger.info(
-                    f"Cached subset classes {cached_classes} differ from source {source_classes}. "
-                    "Auto-regenerating overfit subset..."
-                )
-                recreate = True
-        except Exception as e:
-            logger.warning(f"Could not inspect cached subset ({e}). Recreating...")
-            recreate = True
-    else:
-        recreate = True
-
-    if recreate:
+    if not subset_json.is_file():
         logger.info(f"Generating balanced overfit subset ({args.num_images} images) from {args.train_json}...")
         create_overfit_subset(
             input_json=args.train_json,
@@ -124,6 +103,8 @@ def main(args):
             num_images=args.num_images,
             seed=args.seed,
         )
+    else:
+        logger.info(f"Reusing existing overfit subset: {subset_json}")
 
     # ── Step 2: Register subset as BOTH train and val dataset ─────────────────
     thing_classes = register_mammo_dataset(

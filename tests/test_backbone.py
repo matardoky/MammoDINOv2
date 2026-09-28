@@ -126,3 +126,20 @@ def test_backbone_teacher_loading_validation():
 
     loaded_model = DINOv2MultiScaleBackbone(pretrained=False, checkpoint_path=valid_ckpt_path)
     assert loaded_model is not None
+
+
+def test_backbone_layernorm_intermediate_features():
+    """Verify that forward_intermediates extracts LayerNorm-normalized features (norm=True)."""
+    backbone = DINOv2MultiScaleBackbone(pretrained=False)
+    x = torch.randn(1, 3, 224, 224)
+    with torch.no_grad():
+        feats = backbone(x)
+
+    for name, feat in feats.items():
+        # Normalized LayerNorm features across channel dimension have mean ~0 and std ~1
+        # Mean across channel dimension (dim=1) should be very close to 0
+        ch_mean = feat.mean(dim=1)
+        assert torch.allclose(ch_mean, torch.zeros_like(ch_mean), atol=1e-3), (
+            f"{name}: feature map is not LayerNorm normalized along channel axis"
+        )
+
