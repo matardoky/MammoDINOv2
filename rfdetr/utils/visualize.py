@@ -77,6 +77,7 @@ def visualize_dataset(
     save_dir: Optional[str] = None,
     seed: Optional[int] = None,
     images_fallback_dir: Optional[str] = None,
+    show: bool = False,
 ) -> None:
     """Visualize random samples from a registered detectron2 dataset.
 
@@ -89,9 +90,10 @@ def visualize_dataset(
         low_pct: Lower percentile for 16-bit windowing (default: 1.0).
         high_pct: Upper percentile for 16-bit windowing (default: 99.0).
         scale: Visualizer drawing scale (default: 1.0).
-        save_dir: If provided, save figures to this directory instead of showing.
-        seed: Optional random seed for reproducibility.
+        save_dir: If provided, save figures to this directory.
+        seed: Optional random seed for reproducibility (default: None for fresh random selection).
         images_fallback_dir: Optional fallback directory for locating images.
+        show: Whether to display figure with plt.show() even if save_dir is set.
     """
     try:
         import matplotlib.pyplot as plt
@@ -104,7 +106,14 @@ def visualize_dataset(
     dataset_dicts = DatasetCatalog.get(dataset_name)
     metadata = MetadataCatalog.get(dataset_name)
 
-    samples = random.sample(dataset_dicts, min(num_images, len(dataset_dicts)))
+    # Prioritize images containing annotations (lesions) for meaningful inspection
+    annotated = [d for d in dataset_dicts if len(d.get("annotations", [])) > 0]
+    if len(annotated) >= num_images:
+        samples = random.sample(annotated, num_images)
+    else:
+        non_annotated = [d for d in dataset_dicts if len(d.get("annotations", [])) == 0]
+        n_extra = min(num_images - len(annotated), len(non_annotated))
+        samples = (annotated + random.sample(non_annotated, n_extra)) if non_annotated else annotated
 
     fig, axs = plt.subplots(
         nrows=len(samples),
@@ -148,7 +157,8 @@ def visualize_dataset(
         out_path = Path(save_dir) / f"viz_{dataset_name}.png"
         plt.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved: {out_path}")
-    else:
+
+    if show or not save_dir:
         plt.show()
 
     plt.close(fig)
@@ -167,6 +177,7 @@ def visualize_predictions(
     images_fallback_dir: Optional[str] = None,
     test_size: int = 812,
     max_size: int = 1624,
+    show: bool = False,
 ) -> None:
     """Visualize Ground Truth vs Model Predictions side-by-side.
 
@@ -299,7 +310,8 @@ def visualize_predictions(
         out_path = Path(save_dir) / f"pred_vs_gt_{dataset_name}.png"
         plt.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"✅ Comparison visualization saved to: {out_path}")
-    else:
+
+    if show or not save_dir:
         plt.show()
 
     plt.close(fig)

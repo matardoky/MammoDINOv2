@@ -53,9 +53,9 @@ def main():
     parser.add_argument("--low-pct",      type=float, default=1.0)
     parser.add_argument("--high-pct",     type=float, default=99.0)
     parser.add_argument("--test-size",    type=int, default=812)
-    parser.add_argument("--max-size",     type=int, default=1624)
-    parser.add_argument("--save-dir",     default=None, help="Save figures here instead of displaying GUI")
-    parser.add_argument("--seed",         type=int, default=42)
+    parser.add_argument("--save-dir",     default=None, help="Save figures here (optional, if omitted or if --show is passed, displays inline)")
+    parser.add_argument("--show",         action="store_true", default=False, help="Force inline display (useful in Jupyter/Colab notebooks)")
+    parser.add_argument("--seed",         type=int, default=None, help="Random seed for reproducibility (default: None for fresh random selection)")
     parser.add_argument("--detrex-root",  default=_default_detrex)
     args = parser.parse_args()
 
@@ -104,6 +104,7 @@ def main():
             images_fallback_dir=args.images_dir,
             test_size=args.test_size,
             max_size=args.max_size,
+            show=args.show,
         )
     else:
         # ── Mode 1: Dataset Inspection (Raw 16-bit vs GT annotations) ─────────
@@ -115,6 +116,7 @@ def main():
             save_dir=args.save_dir,
             seed=args.seed,
             images_fallback_dir=args.images_dir,
+            show=args.show,
         )
 
 
