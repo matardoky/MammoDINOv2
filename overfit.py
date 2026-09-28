@@ -155,6 +155,14 @@ def main(args):
             cfg.dataloader.train.mapper.images_fallback_dir = args.images_dir
             cfg.dataloader.train.mapper.crop_prob = 0.0  # Full uncropped images for clean validation
             cfg.dataloader.train.total_batch_size = args.batch_size
+            # Deterministic overfit: use the exact same fixed resize as test loader (no random flip/jitter)
+            cfg.dataloader.train.mapper.augmentation = [
+                L(T.ResizeShortestEdge)(
+                    short_edge_length=(812,),
+                    max_size=1624,
+                    sample_style="choice",
+                )
+            ]
         if hasattr(cfg.dataloader, "test") and hasattr(cfg.dataloader.test, "mapper"):
             cfg.dataloader.test.mapper.images_fallback_dir = args.images_dir
 

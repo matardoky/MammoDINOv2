@@ -151,7 +151,29 @@ python visualize.py \
 
 ---
 
-### 2. Training
+### 2. Fast Architecture & Overfit Verification (`overfit.py`)
+
+Verify end-to-end model learning capacity and convergence on a small micro-batch (30 images) in just 5 minutes before launching full 20-epoch training:
+
+```bash
+python overfit.py \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_train.json \
+    --images-dir /content/mammo_data/images \
+    --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
+    --output-dir ./output_overfit \
+    --num-images 30 \
+    --max-iter 300 \
+    --eval-period 50 \
+    --batch-size 2
+```
+
+- **Deterministic Evaluation**: Trains and evaluates on the exact same 30 images with fixed resize (812 px) and zero stochastic flip.
+- **Immediate Optimizer Steps**: `grad_accum_steps=1` enables immediate weight updates on every micro-batch, allowing rapid loss collapse and AP50 convergence.
+- **Automatic Visual Predictions**: Automatically saves visual side-by-side comparisons (Ground Truth vs Model Predictions) in `./output_overfit/visualizations/`.
+
+---
+
+### 3. Full Training
 
 Launch single-GPU or distributed training with automatic dataset class detection:
 
@@ -203,7 +225,7 @@ python train.py \
 
 ---
 
-### 3. Monitoring with TensorBoard
+### 4. Monitoring with TensorBoard
 
 TensorBoard logs are automatically written to `output_dir`. In Google Colab:
 
@@ -222,7 +244,7 @@ Metrics tracked in real time:
 
 ---
 
-### 4. Evaluation
+### 5. Evaluation
 
 Evaluate a trained model checkpoint on the validation set to obtain standard COCO metrics ($AP, AP_{50}, AP_{75}, AP_s, AP_m, AP_l$):
 
@@ -239,7 +261,7 @@ python eval.py \
 
 ---
 
-### 5. Side-by-Side Visualization (Ground Truth vs Predictions)
+### 6. Side-by-Side Visualization (Ground Truth vs Predictions)
 
 Inspect model detections alongside ground-truth radiologist annotations on validation mammograms:
 

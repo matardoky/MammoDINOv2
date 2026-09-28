@@ -75,6 +75,8 @@ def test_visualize_cli_help():
     assert "--conf-thresh" in stdout
     assert "--save-dir" in stdout
     assert "--num-images" in stdout
+    assert "--test-size" in stdout
+    assert "--max-size" in stdout
 
 
 def test_overfit_cli_help():
