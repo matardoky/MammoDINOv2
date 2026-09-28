@@ -287,6 +287,8 @@ def build_arg_parser():
                         help="Gradient accumulation steps (default: from config or 1)")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
+    parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
+                        help="Modify config options using key=value (e.g. --opts dataloader.train.mapper.crop_prob=0.2)")
     return parser
 
 
@@ -308,7 +310,9 @@ def main(args):
     logger.info(f"Auto-detected {num_classes} class(es): {thing_classes}")
 
     cfg = LazyConfig.load(args.config_file)
-    cfg = LazyConfig.apply_overrides(cfg, args.opts)
+    # Support both --opts flag and standard detectron2 positional remainder opts
+    all_opts = (args.opts or []) + (getattr(args, "named_opts", []) or [])
+    cfg = LazyConfig.apply_overrides(cfg, all_opts)
 
     # ── Auto-patch num_classes everywhere in the config ──────────────────────
     # This avoids any hardcoded num_classes=1 in the config file.

@@ -47,6 +47,10 @@ def main():
     parser.add_argument("--max-size",    type=int, default=1624)
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--detrex-root", default=_default_detrex)
+    parser.add_argument("--opts", dest="named_opts", nargs="+", action="extend", default=[],
+                        help="Modify config options using key=value")
+    parser.add_argument("opts", default=None, nargs=argparse.REMAINDER,
+                        help="Modify config options using key=value")
     args = parser.parse_args()
 
     if args.detrex_root not in sys.path:
@@ -62,6 +66,8 @@ def main():
     num_classes = len(thing_classes)
 
     cfg = LazyConfig.load(args.config_file)
+    all_opts = (args.opts or []) + (getattr(args, "named_opts", []) or [])
+    cfg = LazyConfig.apply_overrides(cfg, all_opts)
 
     # Auto-patch num_classes from dataset JSON
     cfg.model.num_classes = num_classes
