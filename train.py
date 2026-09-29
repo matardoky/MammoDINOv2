@@ -240,7 +240,14 @@ def do_train(args, cfg):
 
 
 def do_eval(cfg, model):
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     if "evaluator" in cfg.dataloader and "test" in cfg.dataloader:
+        # Enforce num_workers=0 during evaluation to guarantee zero worker OOM crashes on shared memory
+        cfg.dataloader.test.num_workers = 0
         test_loader = instantiate(cfg.dataloader.test)
         evaluator = instantiate(cfg.dataloader.evaluator)
     else:
@@ -262,16 +269,22 @@ def do_eval(cfg, model):
                 augmentation_with_crop=None,
                 is_train=False,
             ),
-            num_workers=2,
+            num_workers=0,
         )
         evaluator = COCOEvaluator(
             dataset_name="mammo_val",
             output_dir=os.path.join(cfg.train.output_dir, "eval"),
         )
 
-    results = inference_on_dataset(model, test_loader, evaluator)
-    print_csv_format(results)
-    return results
+    try:
+        results = inference_on_dataset(model, test_loader, evaluator)
+        print_csv_format(results)
+        return results
+    finally:
+        del test_loader
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
@@ -285,6 +298,8 @@ def build_arg_parser():
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to DINOv2 checkpoint .pth")
     parser.add_argument("--accum-steps",     type=int, default=None,
                         help="Gradient accumulation steps (default: from config or 1)")
+    parser.add_argument("--num-workers",     type=int, default=None,
+                        help="Number of DataLoader workers for training (default: 2, set 0 or 1 on low RAM environments)")
     parser.add_argument("--detrex-root",     default=_default_detrex,
                         help=f"Path to detrex clone (default: {_default_detrex})")
     parser.add_argument("--freeze-blocks",   type=int, default=0,
@@ -398,8 +413,13 @@ def main(args):
     if hasattr(cfg, "dataloader"):
         if hasattr(cfg.dataloader, "train") and hasattr(cfg.dataloader.train, "mapper"):
             cfg.dataloader.train.mapper.images_fallback_dir = args.images_dir
+            if getattr(args, "num_workers", None) is not None:
+                cfg.dataloader.train.num_workers = args.num_workers
+                logger.info(f"Train dataloader num_workers set to: {args.num_workers}")
         if hasattr(cfg.dataloader, "test") and hasattr(cfg.dataloader.test, "mapper"):
             cfg.dataloader.test.mapper.images_fallback_dir = args.images_dir
+            # Always ensure test dataloader has 0 workers to prevent IPC shared memory crashes during eval
+            cfg.dataloader.test.num_workers = 0
 
     default_setup(cfg, args)
 

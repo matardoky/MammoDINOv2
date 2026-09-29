@@ -45,7 +45,7 @@ def main():
     parser.add_argument("--output-dir",  default="./eval_output")
     parser.add_argument("--test-size",   type=int, default=812)
     parser.add_argument("--max-size",    type=int, default=1624)
-    parser.add_argument("--num-workers", type=int, default=1)
+    parser.add_argument("--num-workers", type=int, default=0, help="DataLoader workers (default: 0 for zero shared-memory overhead)")
     parser.add_argument("--detrex-root", default=_default_detrex)
     parser.add_argument("--opts", dest="named_opts", nargs="+", action="extend", default=[],
                         help="Modify config options using key=value")

@@ -212,7 +212,7 @@ dataloader.test = L(build_detection_test_loader)(
         is_train=False,
         mask_on=False,
     ),
-    num_workers=2,
+    num_workers=0,  # 0 workers for evaluation eliminates IPC shared memory (/dev/shm) overhead and worker crashes
 )
 
 dataloader.evaluator = L(COCOEvaluator)(

@@ -20,6 +20,14 @@ import cv2
 import numpy as np
 import torch
 
+# Prevent OpenCV from spawning thread pools inside DataLoader worker subprocesses,
+# which causes shared memory (/dev/shm) exhaustion and OOM kills on Linux/Colab.
+cv2.setNumThreads(0)
+try:
+    cv2.ocl.setUseOpenCL(False)
+except Exception:
+    pass
+
 try:
     import detectron2.data.transforms as T
     from detectron2.data import detection_utils as utils
