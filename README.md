@@ -201,26 +201,32 @@ python train.py \
     --num-gpus 1
 ```
 
-> **Key Runtime Configuration:**
+> **Key Runtime Configuration (for 1,564 images):**
 > - **Effective Batch Size = 16**: Physical `batch_size = 2` (to fit on 15 GB Colab T4 GPUs) with `accum_steps = 8` yields an effective batch size of $2 \times 8 = 16$, ensuring stable Hungarian matching and contrastive denoising.
-> - **20-Epoch Schedule**: For 5,669 images at batch size 2, 1 epoch = 2,835 iterations. 20 epochs = **56,700 iterations** total.
-> - **Warmup**: 2% of total schedule (**1,134 iterations**).
-> - **LR Decay**: $10\times$ step decay at epoch 16 (80% = **45,360 iterations**).
-> - **Evaluation & Best Model Saving**: Evaluated every epoch (2,835 iterations); highest `bbox/AP50` checkpoint is automatically saved as `model_best.pth`.
+> - **20-Epoch Schedule**: For 1,564 images at batch size 2, 1 epoch = 782 iterations. 20 epochs = **15,640 iterations** total.
+> - **Half-Period Evaluation (Half-Epoch)**: Evaluated every half period (**391 iterations** = 0.5 epoch), providing 40 evaluation checkpoints across 20 epochs. The peak `bbox/AP50` checkpoint is automatically saved as `model_best.pth`.
+> - **Warmup**: 2% of total schedule (**312 iterations**).
+> - **LR Decay**: $10\times$ step decay at epoch 16 (80% = **12,512 iterations**).
 > - **Pure FP32 Precision**: Robust standard float32 precision guaranteeing numerical stability and native CUDA compatibility.
 > - **Gradient Norm Logging**: Logs `grad_norm` at each step to TensorBoard to monitor transformer stability.
 
-#### Overriding Hyperparameters via `--opts`
-You can override any config value from the command line using the `--opts` flag (or standard positional remainder arguments at the end):
+#### CLI Arguments & Custom Overrides
+You can pass `--max-iter`, `--eval-period`, or override any config value from the command line using `--opts`:
 
 ```bash
 python train.py \
     --config-file configs/mammo_dinov2_dino.py \
-    --train-json ... --val-json ... --images-dir ... \
-    --output-dir ./output \
-    --opts train.max_iter=56700 \
-           train.eval_period=2835 \
-           dataloader.train.mapper.crop_prob=0.2
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --images-dir /content/mammo_data/images \
+    --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
+    --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN \
+    --max-iter 15640 \
+    --eval-period 391 \
+    --freeze-blocks 0 \
+    --accum-steps 8 \
+    --num-gpus 1 \
+    --opts dataloader.train.mapper.crop_prob=0.2
 ```
 
 #### Resuming Training

@@ -299,6 +299,10 @@ def build_arg_parser():
                         help="Learning rate for top ViT block with layer-wise decay (default: 1.19e-4)")
     parser.add_argument("--clip-grad-norm",  type=float, default=None,
                         help="Maximum gradient norm for clipping (default: 0.1 from config)")
+    parser.add_argument("--max-iter",        type=int, default=None,
+                        help="Total training iterations (default: 15640 for 20 epochs on 1564 images)")
+    parser.add_argument("--eval-period",     type=int, default=None,
+                        help="Evaluation and checkpoint period (default: 391 for half-epoch)")
     parser.add_argument("--opts",            dest="named_opts", nargs="+", action="extend", default=[],
                         help="Modify config options using key=value (e.g. --opts dataloader.train.mapper.crop_prob=0.2)")
     return parser
@@ -369,6 +373,19 @@ def main(args):
         if hasattr(cfg.optimizer, "params") and hasattr(cfg.optimizer.params, "backbone_lr"):
             cfg.optimizer.params.backbone_lr = args.backbone_lr
             logger.info(f"Backbone LR set to: {args.backbone_lr}")
+
+    # Inject max_iter & eval_period
+    if getattr(args, "max_iter", None) is not None:
+        cfg.train.max_iter = args.max_iter
+        if hasattr(cfg, "lr_multiplier") and hasattr(cfg.lr_multiplier, "scheduler"):
+            milestone_1 = int(args.max_iter * 0.80)
+            cfg.lr_multiplier.scheduler.milestones = [milestone_1, args.max_iter]
+        logger.info(f"Max iterations set to: {args.max_iter}")
+    if getattr(args, "eval_period", None) is not None:
+        cfg.train.eval_period = args.eval_period
+        if hasattr(cfg.train, "checkpointer") and cfg.train.checkpointer:
+            cfg.train.checkpointer.period = args.eval_period
+        logger.info(f"Eval period set to: {args.eval_period}")
 
     # Inject output dir
     if getattr(args, "output_dir", None):
