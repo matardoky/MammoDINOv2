@@ -172,7 +172,7 @@ python overfit.py \
 
 - **Fully Unfrozen Backbone**: `--freeze-blocks 0` unfreezes all 12 DINOv2 ViT blocks and patch embeddings (22.06M trainable parameters), enabling complete representation fine-tuning with activation gradient checkpointing.
 - **Deterministic Evaluation**: Trains and evaluates on the exact same 30 images with fixed resize (812 px) and zero stochastic flip.
-- **Immediate Optimizer Steps**: `grad_accum_steps=1` enables immediate weight updates on every micro-batch, allowing rapid loss collapse and extraordinary AP50 convergence (**99.00% AP50** and **37.77% mAP** achieved at iteration 499 with `freeze_blocks = 0`).
+- **Immediate Optimizer Steps**: `grad_accum_steps=1` enables immediate weight updates on every micro-batch, allowing rapid loss collapse and perfect convergence (**100.00% AP50**, **86.76% AP75**, and **64.99% mAP** achieved with `freeze_blocks = 0`).
 - **DINOv2 Layer-Wise Decay**: Automatically applies layer-wise learning rate decay across all 12 ViT blocks (depth 12 down to depth 1 and stem) with `weight_decay = 0.0` on the backbone.
 - **Automatic Visual Predictions**: Automatically saves visual side-by-side comparisons (Ground Truth vs Model Predictions) in `./output_overfit/visualizations/`.
 
