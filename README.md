@@ -210,8 +210,54 @@ python train.py \
 > - **Pure FP32 Precision**: Robust standard float32 precision guaranteeing numerical stability and native CUDA compatibility.
 > - **Gradient Norm Logging**: Logs `grad_norm` at each step to TensorBoard to monitor transformer stability.
 
-#### CLI Arguments & Custom Overrides
-You can pass `--max-iter`, `--eval-period`, or override any config value from the command line using `--opts`:
+#### Hyperparameters Reference Guide
+
+##### 1. Direct CLI Arguments
+
+| Argument | Default | Description |
+| :--- | :---: | :--- |
+| `--max-iter` | `15640` | Total training iterations (20 epochs for 1,564 images at batch size 2). |
+| `--eval-period` | `391` | Evaluation & checkpoint period (391 iters = every half-epoch; saves `model_best.pth`). |
+| `--freeze-blocks` | `0` | Number of initial DINOv2 blocks to freeze (`0` = 100% unfrozen for full representation learning). |
+| `--lr` | `1e-4` | Base learning rate for DINO transformer and detection heads. |
+| `--backbone-lr` | `1.19e-4` | Learning rate for the top ViT block (decays down to depth 1 via layer-wise LR decay). |
+| `--accum-steps` | `8` | Gradient accumulation steps (physical `batch_size=2` × 8 = **effective batch size 16**). |
+| `--num-queries` | `100` | Number of object queries in DINO (100 validated for complete spatial lesion anchoring). |
+| `--dn-number` | `10` | Number of Contrastive Denoising (CDN) query groups. |
+| `--clip-grad-norm` | `0.1` | Maximum gradient norm clipping (essential for Hungarian matcher stability). |
+| `--num-workers` | `2` | Number of CPU data loader workers for training (`1` or `0` for low-RAM systems). |
+| `--resume` | *off* | Automatically resumes training from the latest checkpoint in `output_dir`. |
+
+##### 2. Data & Augmentation (`--opts dataloader...`)
+
+| Parameter | Default | Description |
+| :--- | :---: | :--- |
+| `dataloader.train.mapper.crop_prob` | `0.0` | Probability of applying `LesionAwareCrop` (`0.2` recommended: 20% lesion zoom, 80% full field). |
+| `dataloader.train.mapper.crop_size` | `[518, 518]` | Size of the crop window (multiple of 14 for ViT patch alignment). |
+| `dataloader.train.mapper.low_pct` | `1.0` | Lower percentile for foreground intensity windowing (filters air background). |
+| `dataloader.train.mapper.high_pct` | `99.0` | Upper percentile for intensity windowing (clips extreme bright artifacts). |
+| `dataloader.repeat_thresh` | `0.15` | RepeatFactorTrainingSampler threshold (automatically oversamples rare lesion types). |
+| `dataloader.train.total_batch_size` | `2` | Physical micro-batch size per GPU step. |
+
+##### 3. Loss Weights & Matching Costs (`--opts model.criterion...`)
+
+| Parameter | Default | Description |
+| :--- | :---: | :--- |
+| `model.criterion.weight_dict.loss_bbox` | `5.0` | Weight for L1 bounding box coordinate loss. |
+| `model.criterion.weight_dict.loss_giou` | `2.0` | Weight for Generalized IoU (GIoU) box loss. |
+| `model.criterion.weight_dict.loss_class` | `1.0` | Weight for focal classification loss. |
+| `model.criterion.alpha` | `0.25` | Focal loss $\alpha$ class balance factor. |
+| `model.criterion.gamma` | `2.0` | Focal loss $\gamma$ focusing parameter on hard examples. |
+
+##### 4. Optimization & Schedule (`--opts optimizer...` / `--opts train...`)
+
+| Parameter | Default | Description |
+| :--- | :---: | :--- |
+| `optimizer.weight_decay` | `1e-4` | L2 weight decay on projector and transformer heads (`0.0` on backbone). |
+| `optimizer.params.layer_decay` | `0.90` | Multiplicative decay per ViT layer from block 12 down to block 1. |
+| `train.log_period` | `20` | Interval (iterations) for console metrics logging and TensorBoard writing. |
+
+#### Recommended Training Command
 
 ```bash
 python train.py \
@@ -230,14 +276,16 @@ python train.py \
 ```
 
 #### Resuming Training
-To resume training seamlessly from the latest saved checkpoint:
+To resume training seamlessly from the latest saved checkpoint after a pause or disconnection:
 
 ```bash
 python train.py \
     --config-file configs/mammo_dinov2_dino.py \
-    --train-json ... --val-json ... --images-dir ... \
-    --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR \
-    --num-gpus 1 \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --images-dir /content/mammo_data/images \
+    --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
+    --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN \
     --resume
 ```
 
