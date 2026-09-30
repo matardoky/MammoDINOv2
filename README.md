@@ -157,7 +157,7 @@ Verify end-to-end model learning capacity and convergence on a small micro-batch
 
 ```bash
 python overfit.py \
-    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_train.json \
     --images-dir /content/mammo_data/images \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
     --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_OVERFIT \
@@ -262,8 +262,8 @@ python train.py \
 ```bash
 python train.py \
     --config-file configs/mammo_dinov2_dino.py \
-    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
-    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_train.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
     --images-dir /content/mammo_data/images \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
     --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN \
@@ -281,8 +281,8 @@ To resume training seamlessly from the latest saved checkpoint after a pause or 
 ```bash
 python train.py \
     --config-file configs/mammo_dinov2_dino.py \
-    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
-    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --train-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_train.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
     --images-dir /content/mammo_data/images \
     --dinov2-weights /content/drive/MyDrive/EMBED_Dataset/checkpoints/dinov2_latest_checkpoint.pth \
     --output-dir /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN \
