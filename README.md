@@ -310,36 +310,54 @@ Metrics tracked in real time:
 
 ---
 
-### 5. Evaluation
+### 5. Evaluation & Side-by-Side Comparison
 
-Evaluate a trained model checkpoint on the validation set to obtain standard COCO metrics ($AP, AP_{50}, AP_{75}, AP_s, AP_m, AP_l$):
+Evaluate a trained model checkpoint on the validation set to obtain standard COCO metrics ($AP, AP_{50}, AP_{75}, AP_s, AP_m, AP_l$) and automatically generate a **2-column comparison figure** (`eval_output/pred_vs_gt_mammo_val.png`):
+- **Colonne 1 (gauche)** : Vraies Bounding Boxes (Ground Truth issu des annotations radiologues).
+- **Colonne 2 (droite)** : Prédictions Bounding Boxes du modèle RF-DETR avec labels et scores de confiance (%).
 
 ```bash
 python eval.py \
     --config-file configs/mammo_dinov2_dino.py \
-    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR/model_best.pth \
-    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
+    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN/model_best.pth \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
     --images-dir /content/mammo_data/images \
     --output-dir ./eval_output \
     --test-size 812 \
     --max-size 1624
 ```
 
+#### Afficher l'image dans Google Colab
+Après l'exécution de `eval.py`, affichez directement la figure comparative dans votre notebook :
+
+```python
+from IPython.display import Image, display
+display(Image("./eval_output/pred_vs_gt_mammo_val.png"))
+```
+
+#### Options Utiles
+- `--visualize-only` : Génère instantanément la figure comparative à 2 colonnes sans ré-évaluer l'intégralité du dataset de validation.
+- `--num-viz 4` : Nombre d'images mammographiques affichées (priorise automatiquement les clichés avec lésions).
+- `--conf-thresh 0.30` : Seuil de confiance minimal pour afficher les boîtes prédites.
+- `--no-visualize` : Désactive la génération de la figure (évaluation COCO pure).
+
 ---
 
-### 6. Side-by-Side Visualization (Ground Truth vs Predictions)
+### 6. Side-by-Side Visualization Directe (`visualize.py`)
 
-Inspect model detections alongside ground-truth radiologist annotations on validation mammograms:
+Pour afficher directement et instantanément la comparaison 2 colonnes sans passer par `eval.py` (avec rendu interactif inline dans Colab) :
 
 ```python
 %run visualize.py \
-    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR/model_best.pth \
+    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN/model_best.pth \
     --config-file configs/mammo_dinov2_dino.py \
-    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/full_coco_3class_val.json \
+    --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
     --images-dir /content/mammo_data/images \
+    --output-dir ./eval_output \
+    --test-size 812 \
+    --max-size 1624 \
     --conf-thresh 0.30 \
     --num-images 4 \
-    --save-dir ./viz_predictions \
     --show
 ```
 

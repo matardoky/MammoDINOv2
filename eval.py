@@ -46,6 +46,18 @@ def main():
     parser.add_argument("--test-size",   type=int, default=812)
     parser.add_argument("--max-size",    type=int, default=1624)
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader workers (default: 0 for zero shared-memory overhead)")
+    parser.add_argument("--visualize",   dest="visualize", action="store_true", default=True,
+                        help="Generate side-by-side comparison figure: Column 1 = Ground Truth bboxes, Column 2 = Model Prediction bboxes (default: True)")
+    parser.add_argument("--no-visualize", "--no-viz", dest="visualize", action="store_false",
+                        help="Disable side-by-side comparison figure generation")
+    parser.add_argument("--visualize-only", action="store_true", default=False,
+                        help="Only generate the side-by-side Ground Truth vs Predictions figure without running the full test set COCO evaluation")
+    parser.add_argument("--num-viz",     type=int, default=4,
+                        help="Number of images in the side-by-side comparison figure (default: 4)")
+    parser.add_argument("--conf-thresh", type=float, default=0.30,
+                        help="Confidence threshold for predictions in comparison figure (default: 0.30)")
+    parser.add_argument("--show",        action="store_true", default=False,
+                        help="Display visualization inline in interactive notebooks via plt.show()")
     parser.add_argument("--detrex-root", default=_default_detrex)
     parser.add_argument("--opts", dest="named_opts", nargs="+", action="extend", default=[],
                         help="Modify config options using key=value")
@@ -85,33 +97,60 @@ def main():
     DetectionCheckpointer(model).load(args.weights)
     logger.info(f"Loaded weights from {args.weights}")
 
-    from detectron2.data import DatasetCatalog
+    if not args.visualize_only:
+        from detectron2.data import DatasetCatalog
 
-    val_dataset_dicts = DatasetCatalog.get("mammo_val")
-    test_loader = build_detection_test_loader(
-        dataset=val_dataset_dicts,
-        mapper=Mammo16BitMapper(
-            augmentation=[
-                T.ResizeShortestEdge(
-                    short_edge_length=(args.test_size,),
-                    max_size=args.max_size,
-                    sample_style="choice",
-                )
-            ],
-            augmentation_with_crop=None,
-            is_train=False,
+        val_dataset_dicts = DatasetCatalog.get("mammo_val")
+        test_loader = build_detection_test_loader(
+            dataset=val_dataset_dicts,
+            mapper=Mammo16BitMapper(
+                augmentation=[
+                    T.ResizeShortestEdge(
+                        short_edge_length=(args.test_size,),
+                        max_size=args.max_size,
+                        sample_style="choice",
+                    )
+                ],
+                augmentation_with_crop=None,
+                is_train=False,
+                images_fallback_dir=args.images_dir,
+            ),
+            num_workers=args.num_workers,
+        )
+
+        evaluator = COCOEvaluator(
+            dataset_name="mammo_val",
+            output_dir=args.output_dir,
+        )
+
+        results = inference_on_dataset(model, test_loader, evaluator)
+        print_csv_format(results)
+
+    if args.visualize or args.visualize_only or args.show:
+        from rfdetr.utils.visualize import visualize_predictions
+
+        print("\n" + "=" * 70)
+        print(f"📊 Génération de la comparaison Côtes-à-Côtes ({args.num_viz} images) :")
+        print("   - Colonne 1 : Vraies Bounding Boxes (Ground Truth)")
+        print("   - Colonne 2 : Prédictions Bounding Boxes Modèle RF-DETR")
+        print("=" * 70)
+        saved_fig = visualize_predictions(
+            model=model,
+            dataset_name="mammo_val",
+            num_images=args.num_viz,
+            conf_thresh=args.conf_thresh,
+            save_dir=args.output_dir,
             images_fallback_dir=args.images_dir,
-        ),
-        num_workers=args.num_workers,
-    )
-
-    evaluator = COCOEvaluator(
-        dataset_name="mammo_val",
-        output_dir=args.output_dir,
-    )
-
-    results = inference_on_dataset(model, test_loader, evaluator)
-    print_csv_format(results)
+            test_size=args.test_size,
+            max_size=args.max_size,
+            show=args.show,
+        )
+        if saved_fig:
+            print(f"✅ Figure de comparaison enregistrée : {saved_fig}")
+            print("Pour l'afficher directement dans Google Colab, exécutez dans une cellule :")
+            print("    from IPython.display import Image, display")
+            print(f"    display(Image('{saved_fig}'))")
+            print("=" * 70 + "\n")
 
 
 if __name__ == "__main__":

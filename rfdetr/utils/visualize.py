@@ -351,7 +351,11 @@ def visualize_predictions(
     else:
         non_annotated = [d for d in dataset_dicts if len(d.get("annotations", [])) == 0]
         n_extra = min(num_images - len(annotated), len(non_annotated))
-        samples = annotated + random.sample(non_annotated, n_extra)
+        samples = annotated + (random.sample(non_annotated, n_extra) if non_annotated else [])
+
+    if not samples:
+        logger.warning(f"No images found in dataset '{dataset_name}' to visualize.")
+        return None
 
     # Inference transformation mapper (handles 16-bit normalization and resize)
     mapper = Mammo16BitMapper(
@@ -375,6 +379,7 @@ def visualize_predictions(
     )
 
     model.eval()
+    device = next(model.parameters()).device if list(model.parameters()) else torch.device("cpu")
 
     for i, d in enumerate(samples):
         # 1. Read full-resolution 16-bit normalized image for rendering
@@ -387,6 +392,8 @@ def visualize_predictions(
 
         # 2. Transform input for model forward pass
         model_input = mapper(d)
+        if "image" in model_input and torch.is_tensor(model_input["image"]):
+            model_input["image"] = model_input["image"].to(device)
 
         # 3. Model forward pass (inference)
         with torch.no_grad():
@@ -403,35 +410,39 @@ def visualize_predictions(
         vis_pred = Visualizer(img_rgb, metadata=metadata, scale=scale)
         out_pred = vis_pred.draw_instance_predictions(filtered_instances)
 
-        # Left: Ground Truth
+        # Left: Ground Truth (Column 1)
         axs[i, 0].imshow(out_gt.get_image())
         axs[i, 0].axis("off")
         n_gt = len(d.get("annotations", []))
         axs[i, 0].set_title(
-            f"Ground Truth — {Path(d['file_name']).name}\n"
-            f"({n_gt} lesion{'s' if n_gt != 1 else ''})",
+            f"Colonne 1 : Vraies Bounding Boxes (Ground Truth)\n"
+            f"{Path(d['file_name']).name} — {n_gt} lésion{'s' if n_gt > 1 else ''} annotée{'s' if n_gt > 1 else ''}",
             fontsize=12,
             fontweight="bold",
+            color="navy",
         )
 
-        # Right: Predictions
+        # Right: Predictions (Column 2)
         axs[i, 1].imshow(out_pred.get_image())
         axs[i, 1].axis("off")
         n_pred = len(filtered_instances)
         axs[i, 1].set_title(
-            f"Model Predictions (conf >= {conf_thresh:.2f}) — {n_pred} detected",
+            f"Colonne 2 : Prédictions Modèle RF-DETR (conf >= {conf_thresh:.2f})\n"
+            f"{Path(d['file_name']).name} — {n_pred} lésion{'s' if n_pred > 1 else ''} prédite{'s' if n_pred > 1 else ''}",
             fontsize=12,
             fontweight="bold",
+            color="darkgreen" if n_pred > 0 else "darkred",
         )
 
     plt.suptitle(
-        f"RF-DETR Mammography Lesion Detection — Inference Comparison ({dataset_name})",
+        f"RF-DETR Mammographie — Comparaison Côtes à Côtes : Vraies Bounding Boxes vs Prédictions Modèle ({dataset_name})",
         fontsize=15,
         fontweight="bold",
         y=1.002,
     )
     plt.tight_layout()
 
+    out_path = None
     if save_dir:
         Path(save_dir).mkdir(parents=True, exist_ok=True)
         out_path = Path(save_dir) / f"pred_vs_gt_{dataset_name}.png"
@@ -442,3 +453,4 @@ def visualize_predictions(
         plt.show()
 
     plt.close(fig)
+    return str(out_path) if out_path is not None else None
