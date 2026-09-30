@@ -345,15 +345,14 @@ display(Image("./eval_output/pred_vs_gt_mammo_val.png"))
 
 ### 6. Side-by-Side Visualization Directe (`visualize.py`)
 
-Pour afficher directement et instantanément la comparaison 2 colonnes sans passer par `eval.py` (avec rendu interactif inline dans Colab) :
+Pour afficher directement et instantanément la comparaison 2 colonnes sans passer par un dossier de sortie (affichage inline direct dans Colab via `--show`) :
 
 ```python
 %run visualize.py \
-    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN/model_best.pth \
     --config-file configs/mammo_dinov2_dino.py \
+    --weights /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/RF_DETR_FULL_TRAIN/model_best.pth \
     --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
     --images-dir /content/mammo_data/images \
-    --output-dir ./eval_output \
     --test-size 812 \
     --max-size 1624 \
     --conf-thresh 0.30 \
