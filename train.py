@@ -298,6 +298,7 @@ def build_arg_parser():
     parser.add_argument("--val-json",        required=True, help="Path to COCO val JSON")
     parser.add_argument("--images-dir",      required=True, help="Root directory for images")
     parser.add_argument("--dinov2-weights",  default=None,  help="Path to DINOv2 checkpoint .pth")
+    parser.add_argument("--init-checkpoint", default=None,  help="Path to initial weights (e.g. model_best.pth for fine-tuning)")
     parser.add_argument("--accum-steps",     type=int, default=None,
                         help="Gradient accumulation steps (default: from config or 1)")
     parser.add_argument("--num-workers",     type=int, default=None,
@@ -357,6 +358,11 @@ def main(args):
     # Inject DINOv2 weights path into config
     if args.dinov2_weights:
         cfg.model.backbone.backbone.checkpoint_path = args.dinov2_weights
+
+    # Inject init_checkpoint (for fine-tuning from a pretrained model / model_best.pth)
+    if getattr(args, "init_checkpoint", None):
+        cfg.train.init_checkpoint = args.init_checkpoint
+        logger.info(f"Initial checkpoint set to: {args.init_checkpoint}")
 
     # Inject freeze_blocks (0 = fully unfrozen, 2 = first 2 blocks frozen)
     if hasattr(args, "freeze_blocks") and args.freeze_blocks is not None:
