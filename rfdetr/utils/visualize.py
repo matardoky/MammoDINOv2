@@ -25,6 +25,29 @@ except ImportError:
     Visualizer = None
 
 
+def resolve_image_path(file_name: str, images_fallback_dir: Optional[str] = None) -> Optional[str]:
+    """Trouve le chemin absolu d'une image en vérifiant le chemin direct, le dossier de fallback et ses sous-dossiers."""
+    import os
+    if os.path.isfile(file_name):
+        return file_name
+
+    if images_fallback_dir and os.path.isdir(images_fallback_dir):
+        # 1. Concaténation directe avec chemin relatif
+        cand1 = os.path.join(images_fallback_dir, file_name)
+        if os.path.isfile(cand1):
+            return cand1
+        # 2. Concaténation directe avec le nom de base
+        cand2 = os.path.join(images_fallback_dir, os.path.basename(file_name))
+        if os.path.isfile(cand2):
+            return cand2
+        # 3. Recherche dans les sous-dossiers éventuels (ex: train/, val/, sous-dossiers patients)
+        base = os.path.basename(file_name)
+        for root, _, files in os.walk(images_fallback_dir):
+            if base in files:
+                return os.path.join(root, base)
+    return None
+
+
 def read_mammo_uint8(
     file_name: str,
     low_pct: float = 1.0,
@@ -36,17 +59,13 @@ def read_mammo_uint8(
     Applies percentile windowing so the image is visible in matplotlib.
     Falls back to standard read for 8-bit images.
     """
-    import os
-
-    path = file_name
-    if not os.path.isfile(path) and images_fallback_dir:
-        candidate = os.path.join(images_fallback_dir, os.path.basename(file_name))
-        if os.path.isfile(candidate):
-            path = candidate
+    path = resolve_image_path(file_name, images_fallback_dir)
+    if path is None:
+        raise IOError(f"Could not read: {file_name} (introuvable dans '{images_fallback_dir}')")
 
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if img is None:
-        raise IOError(f"Could not read: {path}")
+        raise IOError(f"OpenCV could not decode: {path}")
 
     if img.ndim == 3:
         # Already multi-channel BGR 8-bit

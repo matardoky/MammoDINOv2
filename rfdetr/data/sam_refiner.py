@@ -382,7 +382,7 @@ def run_sam_preview_10_samples(
     Returns:
         Dictionnaire récapitulatif des résultats.
     """
-    from rfdetr.utils.visualize import read_mammo_uint8
+    from rfdetr.utils.visualize import read_mammo_uint8, resolve_image_path
 
     print("=" * 75)
     print(f"🔬 TEST DE RAFFINEMENT DES ANNOTATIONS AVEC SAM (BOX-PROMPT)")
@@ -402,17 +402,26 @@ def run_sam_preview_10_samples(
         img_id = ann["image_id"]
         img_to_annos.setdefault(img_id, []).append(ann)
 
-    # Filtrer les images contenant au moins une lésion annotée
-    images_with_lesions = [
-        img for img in coco_data.get("images", [])
-        if len(img_to_annos.get(img["id"], [])) > 0
-    ]
+    # Filtrer les images contenant au moins une lésion annotée ET existant sur le disque
+    valid_images_with_lesions = []
+    for img in coco_data.get("images", []):
+        if len(img_to_annos.get(img["id"], [])) > 0:
+            resolved = resolve_image_path(img["file_name"], images_fallback_dir=images_dir)
+            if resolved:
+                valid_images_with_lesions.append((img, resolved))
 
-    if not images_with_lesions:
-        raise ValueError(f"Aucune image avec annotation trouvée dans {json_path}")
+    if not valid_images_with_lesions:
+        sample_expected = coco_data["images"][0]["file_name"] if coco_data.get("images") else "image.png"
+        raise FileNotFoundError(
+            f"Aucun fichier image correspondant au JSON n'a été trouvé dans '{images_dir}'.\n"
+            f"Exemple recherché : {sample_expected}\n"
+            f"Vérifiez que --images-dir pointe bien vers le répertoire contenant les fichiers .png."
+        )
+
+    print(f"   Clichés annotés identifiés sur le disque : {len(valid_images_with_lesions)}")
 
     random.seed(seed)
-    selected_images = random.sample(images_with_lesions, min(num_samples, len(images_with_lesions)))
+    selected_pairs = random.sample(valid_images_with_lesions, min(num_samples, len(valid_images_with_lesions)))
 
     # Chargement de SAM
     predictor = load_sam_predictor(model_type=model_type, checkpoint_path=checkpoint_path)
@@ -420,16 +429,20 @@ def run_sam_preview_10_samples(
     results_list = []
     summary_table = []
 
-    print("\nTraitement des 10 clichés par SAM en cours...")
-    for idx, img_info in enumerate(selected_images, start=1):
+    print(f"\nTraitement des {len(selected_pairs)} clichés par SAM en cours...")
+    for idx, (img_info, resolved_path) in enumerate(selected_pairs, start=1):
         file_name = img_info["file_name"]
         annos = img_to_annos[img_info["id"]]
 
-        # Lecture de la mammographie 16-bit normalisée en RGB uint8
-        img_rgb = read_mammo_uint8(file_name, images_fallback_dir=images_dir)
+        try:
+            # Lecture de la mammographie 16-bit normalisée en RGB uint8
+            img_rgb = read_mammo_uint8(resolved_path)
 
-        # Encode l'image une seule fois dans le ViT de SAM
-        predictor.set_image(img_rgb)
+            # Encode l'image une seule fois dans le ViT de SAM
+            predictor.set_image(img_rgb)
+        except Exception as e:
+            logger.warning(f"Impossible de traiter {file_name}: {e}. Cliché ignoré.")
+            continue
 
         sample_res = {
             "image_rgb": img_rgb,
