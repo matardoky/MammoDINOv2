@@ -54,8 +54,8 @@ def parse_args():
         help="Chemin vers le fichier JSON COCO d'entrée"
     )
     parser.add_argument(
-        "--images-dir", required=True,
-        help="Dossier contenant les images mammographiques"
+        "--images-dir", default=None,
+        help="Dossier contenant les images mammographiques (détecté automatiquement si omis)"
     )
     parser.add_argument(
         "--num-samples", type=int, default=10,
@@ -69,12 +69,13 @@ def parse_args():
         "--sam-checkpoint", default=None,
         help="Chemin vers le fichier de poids .pth (téléchargé automatiquement si omis)"
     )
+    default_save_dir = "/content" if os.path.exists("/content") else "./sam_preview"
     parser.add_argument(
-        "--save-dir", default="./sam_preview",
-        help="Dossier où enregistrer la figure comparative (défaut : ./sam_preview)"
+        "--save-dir", default=default_save_dir,
+        help=f"Dossier où enregistrer la figure comparative (défaut : {default_save_dir})"
     )
     parser.add_argument(
-        "--show", action="store_true", default=False,
+        "--show", action="store_true", default=True,
         help="Afficher la figure directement dans la sortie du notebook Colab/Jupyter"
     )
     parser.add_argument(

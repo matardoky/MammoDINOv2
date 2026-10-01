@@ -402,20 +402,42 @@ def run_sam_preview_10_samples(
         img_id = ann["image_id"]
         img_to_annos.setdefault(img_id, []).append(ann)
 
-    # Filtrer les images contenant au moins une lésion annotée ET existant sur le disque
+    # Recherche multi-dossiers intelligente (dossier spécifié + dossiers usuels Colab et Drive)
+    search_dirs = [images_dir] if images_dir else []
+    for cand in [
+        "/content/mammo_data/images",
+        "/content/mammo_data",
+        "/content/images",
+        "/content/drive/MyDrive/EMBED_Dataset/images",
+        "/content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/images",
+        "/content/drive/MyDrive/EMBED_Dataset",
+    ]:
+        if os.path.isdir(cand) and cand not in search_dirs:
+            search_dirs.append(cand)
+
     valid_images_with_lesions = []
-    for img in coco_data.get("images", []):
-        if len(img_to_annos.get(img["id"], [])) > 0:
-            resolved = resolve_image_path(img["file_name"], images_fallback_dir=images_dir)
-            if resolved:
-                valid_images_with_lesions.append((img, resolved))
+    effective_dir = images_dir
+    for s_dir in search_dirs:
+        for img in coco_data.get("images", []):
+            if len(img_to_annos.get(img["id"], [])) > 0:
+                resolved = resolve_image_path(img["file_name"], images_fallback_dir=s_dir)
+                if resolved:
+                    valid_images_with_lesions.append((img, resolved))
+        if valid_images_with_lesions:
+            effective_dir = s_dir
+            if s_dir != images_dir:
+                print(f"💡 Clichés localisés automatiquement dans : {effective_dir}")
+            break
 
     if not valid_images_with_lesions:
         sample_expected = coco_data["images"][0]["file_name"] if coco_data.get("images") else "image.png"
+        checked_list = "\n   - ".join(search_dirs) if search_dirs else "aucun dossier valide"
         raise FileNotFoundError(
-            f"Aucun fichier image correspondant au JSON n'a été trouvé dans '{images_dir}'.\n"
-            f"Exemple recherché : {sample_expected}\n"
-            f"Vérifiez que --images-dir pointe bien vers le répertoire contenant les fichiers .png."
+            f"Aucun fichier image correspondant au JSON n'a été trouvé.\n"
+            f"Fichier recherché (ex) : {sample_expected}\n"
+            f"Dossiers inspectés :\n   - {checked_list}\n\n"
+            f"💡 Dans Google Colab, pour localiser l'emplacement réel de ce fichier, lancez :\n"
+            f"   !find /content -name \"*{Path(sample_expected).name}*\"\n"
         )
 
     print(f"   Clichés annotés identifiés sur le disque : {len(valid_images_with_lesions)}")
@@ -502,6 +524,8 @@ def run_sam_preview_10_samples(
     print("=" * 90)
 
     # Sauvegarde et rendu de la figure 2 colonnes
+    if save_dir is None or save_dir == "./sam_preview":
+        save_dir = "/content" if os.path.exists("/content") else "./sam_preview"
     os.makedirs(save_dir, exist_ok=True)
     out_img_path = os.path.join(save_dir, "sam_refinement_preview_10_samples.png")
     visualize_sam_comparison_grid(
