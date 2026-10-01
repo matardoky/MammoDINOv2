@@ -366,6 +366,44 @@ Pour afficher directement et instantanément la comparaison 2 colonnes sans pass
 
 ---
 
+### 7. Raffinement des Bounding Boxes avec SAM (Segment Anything Model)
+
+Pour corriger les annotations humaines trop larges du dataset, un module basé sur **SAM en mode Box-Prompt** segmente précisément la masse dense à l'intérieur de la boîte et recalcule le rectangle englobant minimal (*tight bbox*).
+
+#### Test préliminaire sur 10 clichés (Avant / Après SAM en 2 colonnes)
+
+Visualisez la segmentation et le resserrement sur 10 clichés représentatifs avant d'appliquer sur le dataset complet :
+
+```bash
+pip install -q segment-anything
+
+python scripts/refine_annotations_with_sam.py \
+    --json-file /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
+    --images-dir /content/mammo_data/images \
+    --num-samples 10 \
+    --save-dir ./sam_preview \
+    --show
+```
+
+- **Colonne 1 (gauche)** : Image originale avec la boîte rouge large du radiologue.
+- **Colonne 2 (droite)** : Masque de segmentation SAM (cyan) + nouvelle boîte resserrée (vert néon) + boîte originale en pointillés (rouge).
+- Affiche un tableau récapitulatif avec le pourcentage de réduction de surface par lésion.
+- Télécharge automatiquement les poids officiels `sam_vit_b_01ec64.pth` (375 MB).
+
+#### Raffinement complet du dataset entier (Export nouveau JSON)
+
+Une fois la qualité de segmentation validée sur les 10 clichés, exportez le nouveau dataset COCO resserré :
+
+```bash
+python scripts/refine_annotations_with_sam.py \
+    --json-file /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train.json \
+    --output-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_train_tight.json \
+    --images-dir /content/mammo_data/images \
+    --full-dataset
+```
+
+---
+
 ## Python Notebook API
 
 You can also use the modules directly in Python or Jupyter cells:
