@@ -172,4 +172,21 @@ def test_extract_refined_boxes_no_split():
     assert b[2] == pytest.approx(145.0, abs=1.0)
 
 
+def test_generate_sam_datasets_cli_help():
+    """Vérifie que scripts/generate_sam_datasets.py s'exécute avec --help."""
+    script_path = PROJECT_ROOT / "scripts" / "generate_sam_datasets.py"
+    res = subprocess.run(
+        [sys.executable, str(script_path), "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    assert res.returncode == 0, f"generate_sam_datasets.py --help failed: {res.stderr}"
+    stdout = res.stdout
+    assert "--train-json" in stdout
+    assert "--val-json" in stdout
+    assert "--images-dir" in stdout
+
+
+
 
