@@ -100,3 +100,20 @@ def test_resolve_image_path_nested_and_case_insensitive(tmp_path):
     # 3. Fichier inexistant
     assert resolve_image_path("unknown_file_123.png", images_fallback_dir=str(tmp_path)) is None
 
+
+def test_standalone_sam_preview_cli_help():
+    """Vérifie que le script standalone scripts/standalone_sam_preview.py s'exécute avec --help."""
+    script_path = PROJECT_ROOT / "scripts" / "standalone_sam_preview.py"
+    res = subprocess.run(
+        [sys.executable, str(script_path), "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    assert res.returncode == 0, f"standalone_sam_preview.py --help failed: {res.stderr}"
+    stdout = res.stdout
+    assert "--json-file" in stdout
+    assert "--images-dir" in stdout
+    assert "--num-samples" in stdout
+
+
