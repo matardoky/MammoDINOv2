@@ -301,6 +301,25 @@ def segment_box_with_sam(
         best_mask = masks[0]
         best_score = float(scores[0]) if len(scores) > 0 else 1.0
 
+    # Contrôle post-traitement : si SAM a segmenté du noir (air ambiant < 20), on garde l'ancienne boîte
+    if best_mask is not None and np.any(best_mask):
+        gray = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2GRAY) if image_rgb.ndim == 3 else image_rgb
+        mean_intensity = float(np.mean(gray[best_mask > 0]))
+        if mean_intensity < 20.0:
+            logger.info(
+                f"Post-traitement : région segmentée dans le fond noir (intensité {mean_intensity:.1f} < 20.0). "
+                "Conservation de l'ancienne boîte originale."
+            )
+            fallback_items = [{
+                "box": list(box_xywh),
+                "mask": None,
+                "reduction_pct": 0.0,
+                "is_split": False,
+                "component_idx": 1,
+                "total_components": 1,
+            }]
+            return fallback_items, None, 0.0, 0.0
+
     refined_items = extract_refined_boxes_from_mask(
         mask=best_mask,
         original_box_xywh=box_xywh,
@@ -415,22 +434,25 @@ def visualize_sam_comparison_grid(
 
             # Nouvelle boîte resserrée en vert néon
             tbx, tby, tbw, tbh = tight_b
+            is_black_fb = (sc == 0.0 and red_pct == 0.0)
+            box_col = "#FF9800" if is_black_fb else "#00E676"
             tight_rect = patches.Rectangle(
                 (tbx, tby), tbw, tbh,
                 linewidth=2.5,
-                edgecolor="#00E676",  # Vert éclatant
+                edgecolor=box_col,
                 facecolor="none",
             )
             axs[i, 1].add_patch(tight_rect)
 
-            label_text = f"SAM : {cat_name} (-{red_pct:.1f}%) [score {sc:.2f}]"
+            label_text = f"{cat_name} (Conservé : fond noir)" if is_black_fb else f"SAM : {cat_name} (-{red_pct:.1f}%) [score {sc:.2f}]"
+            lbl_bg = "#FF9800" if is_black_fb else "#00E676"
             axs[i, 1].text(
                 tbx + 4, max(14, tby - 6),
                 label_text,
                 color="black",
                 fontsize=11,
                 fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="#00E676", alpha=0.9, edgecolor="none"),
+                bbox=dict(boxstyle="round,pad=0.2", facecolor=lbl_bg, alpha=0.9, edgecolor="none"),
             )
             total_reduction += red_pct
 

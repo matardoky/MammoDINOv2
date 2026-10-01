@@ -188,5 +188,40 @@ def test_generate_sam_datasets_cli_help():
     assert "--images-dir" in stdout
 
 
+def test_segment_box_with_sam_black_background_fallback():
+    """Vérifie que si SAM segmente une zone dans le noir (< 20), l'ancienne boîte est conservée."""
+    from unittest.mock import MagicMock
+    from rfdetr.data.sam_refiner import segment_box_with_sam
+
+    # Image 100x100 : fond noir (intensité 5)
+    img_black = np.full((100, 100, 3), 5, dtype=np.uint8)
+
+    # Masque simulé de SAM sur ce fond noir
+    fake_mask = np.zeros((100, 100), dtype=bool)
+    fake_mask[30:60, 30:60] = True
+
+    mock_predictor = MagicMock()
+    mock_predictor.predict.return_value = (
+        np.stack([fake_mask], axis=0),
+        np.array([0.91]),
+        None,
+    )
+
+    orig_box = [10.0, 10.0, 80.0, 80.0]
+    items, mask, score, red_pct = segment_box_with_sam(
+        predictor=mock_predictor,
+        image_rgb=img_black,
+        box_xywh=orig_box,
+        set_image=False,
+    )
+
+    # L'ancienne boîte doit être conservée intacte
+    assert items[0]["box"] == orig_box
+    assert items[0]["reduction_pct"] == 0.0
+    assert mask is None
+    assert score == 0.0
+    assert red_pct == 0.0
+
+
 
 

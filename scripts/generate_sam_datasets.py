@@ -206,7 +206,19 @@ def process_single_coco_json(
             best_mask = masks[best_idx]
             best_score = float(scores[best_idx])
 
-            tight_box, red_pct = refine_box_tight_only(best_mask, orig_box)
+            # Contrôle post-traitement : si la région segmentée est dans le fond noir (< 20)
+            gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY) if img_rgb.ndim == 3 else img_rgb
+            mean_intensity = float(np.mean(gray[best_mask > 0])) if np.any(best_mask) else 0.0
+
+            if mean_intensity < 20.0:
+                # Région dans le fond noir -> conservation de l'ancienne boîte originale
+                tight_box = list(orig_box)
+                red_pct = 0.0
+                best_score = 0.0
+                is_fallback = True
+            else:
+                tight_box, red_pct = refine_box_tight_only(best_mask, orig_box)
+                is_fallback = False
 
             new_ann = dict(ann)
             new_ann["bbox"] = tight_box
@@ -215,6 +227,7 @@ def process_single_coco_json(
                 "original_bbox": orig_box,
                 "reduction_pct": red_pct,
                 "sam_score": round(best_score, 3),
+                "is_fallback": is_fallback,
             }
             refined_annotations.append(new_ann)
             total_reductions.append(red_pct)

@@ -354,11 +354,26 @@ def run_standalone_sam_preview(
             best_mask = masks[best_idx]
             best_score = float(scores[best_idx])
 
-            refined_items = extract_refined_boxes_from_mask(
-                mask=best_mask,
-                original_box_xywh=orig_b,
-                split_multi=split_multi_lesions,
-            )
+            # Contrôle post-traitement : si la région segmentée est dans le fond noir (< 20)
+            gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY) if img_rgb.ndim == 3 else img_rgb
+            mean_intensity = float(np.mean(gray[best_mask > 0])) if np.any(best_mask) else 0.0
+
+            if mean_intensity < 20.0:
+                refined_items = [{
+                    "box": list(orig_b),
+                    "mask": None,
+                    "reduction_pct": 0.0,
+                    "is_split": False,
+                    "component_idx": 1,
+                    "total_components": 1,
+                }]
+                best_score = 0.0
+            else:
+                refined_items = extract_refined_boxes_from_mask(
+                    mask=best_mask,
+                    original_box_xywh=orig_b,
+                    split_multi=split_multi_lesions,
+                )
 
             for item in refined_items:
                 tight_b = item["box"]
@@ -445,15 +460,19 @@ def run_standalone_sam_preview(
                     linewidth=1.8, edgecolor="#E53935", facecolor="none", linestyle="--",
                 ))
                 # Boîte SAM resserrée
+                is_black_fb = (sc == 0.0 and red == 0.0)
+                box_col = "#FF9800" if is_black_fb else "#00E676"
+                lbl_bg = "#FF9800" if is_black_fb else "#00E676"
                 axs[i, 1].add_patch(patches.Rectangle(
                     (tb[0], tb[1]), tb[2], tb[3],
-                    linewidth=2.5, edgecolor="#00E676", facecolor="none",
+                    linewidth=2.5, edgecolor=box_col, facecolor="none",
                 ))
+                lbl_text = f"{cname} (Conservé : fond noir)" if is_black_fb else f"SAM : {cname} (-{red:.1f}%) [score {sc:.2f}]"
                 axs[i, 1].text(
                     tb[0] + 4, max(14, tb[1] - 6),
-                    f"SAM : {cname} (-{red:.1f}%) [score {sc:.2f}]",
+                    lbl_text,
                     color="black", fontsize=11, fontweight="bold",
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="#00E676", alpha=0.9, edgecolor="none"),
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor=lbl_bg, alpha=0.9, edgecolor="none"),
                 )
             axs[i, 1].set_title(
                 f"COLONNE 2 : Après — Masque SAM (Cyan) + Boîte Resserrée (Verte)\nFichier : {fn}",
