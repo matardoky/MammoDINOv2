@@ -66,6 +66,7 @@ from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.utils import comm
 
 from rfdetr.data.registration import register_mammo_dataset
+from rfdetr.solver import PersistentBestCheckpointer
 
 logger = logging.getLogger("mammo_train")
 
@@ -208,13 +209,14 @@ def do_train(args, cfg):
         if comm.is_main_process()
         else None,
         eval_hook,
-        # ── Best model checkpoint (only main process in multi-GPU) ────────────
-        hooks.BestCheckpointer(
-            cfg.train.eval_period,
-            checkpointer,
+        # ── Best model checkpoint (persistant entre les redémarrages de session) ──
+        PersistentBestCheckpointer(
+            eval_period=cfg.train.eval_period,
+            checkpointer=checkpointer,
             val_metric="bbox/AP50",
             mode="max",
             file_prefix="model_best",
+            output_dir=cfg.train.output_dir,
         )
         if comm.is_main_process()
         else None,
