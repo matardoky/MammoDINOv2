@@ -236,11 +236,12 @@ def process_single_coco_json(
             elapsed = time.time() - start_time
             speed = idx / max(0.1, elapsed)
             remain_sec = (total_imgs - idx) / max(0.01, speed)
+            pct_done = (idx / total_imgs) * 100.0
+            avg_red_so_far = float(np.mean(total_reductions)) if total_reductions else 0.0
             sys.stdout.write(
                 f"\r   [{idx}/{total_imgs}] {pct_done:.1f}% | "
                 f"{speed:.1f} img/s | Restant : {remain_sec:.0f}s | "
-                f"Lésions : {len(refined_annotations)} | Réd. moy. : -{np.mean(total_reductions or [0]):.1f}%"
-                .format(pct_done=(idx / total_imgs) * 100)
+                f"Lésions : {len(refined_annotations)} | Réd. moy. : -{avg_red_so_far:.1f}%"
             )
             sys.stdout.flush()
 
