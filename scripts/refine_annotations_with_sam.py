@@ -90,6 +90,14 @@ def parse_args():
         "--seed", type=int, default=42,
         help="Graine aléatoire pour sélectionner les 10 images (défaut : 42)"
     )
+    parser.add_argument(
+        "--split-multi-lesions", action="store_true", default=True,
+        help="Découper les nodules multiples d'une boîte en sous-boîtes distinctes (Option A)"
+    )
+    parser.add_argument(
+        "--no-split", dest="split_multi_lesions", action="store_false",
+        help="Conserver une boîte unique même si plusieurs nodules sont présents (Option B)"
+    )
     return parser.parse_args()
 
 
@@ -110,6 +118,7 @@ def main():
             images_dir=args.images_dir,
             model_type=args.model_type,
             checkpoint_path=args.sam_checkpoint,
+            split_multi_lesions=args.split_multi_lesions,
         )
     else:
         results = run_sam_preview_10_samples(
@@ -121,6 +130,7 @@ def main():
             save_dir=args.save_dir,
             show=args.show,
             seed=args.seed,
+            split_multi_lesions=args.split_multi_lesions,
         )
 
         preview_img = results["preview_image"]

@@ -115,5 +115,61 @@ def test_standalone_sam_preview_cli_help():
     assert "--json-file" in stdout
     assert "--images-dir" in stdout
     assert "--num-samples" in stdout
+    assert "--split-multi-lesions" in stdout
+
+
+def test_extract_refined_boxes_multi_component_split():
+    """Vérifie que 2 nodules distincts dans une même boîte sont bien scindés en 2 boîtes (Option A)."""
+    from rfdetr.data.sam_refiner import extract_refined_boxes_from_mask
+
+    # Masque 200x200 avec 2 nodules distincts
+    mask = np.zeros((200, 200), dtype=bool)
+    # Nodule 1 : 20x20 pixels [20..40, 20..40] (aire 400)
+    mask[20:40, 20:40] = True
+    # Nodule 2 : 25x25 pixels [140..165, 140..165] (aire 625)
+    mask[140:165, 140:165] = True
+
+    # Grande boîte englobante originale de 180x180 (aire = 32400)
+    orig_box = [10.0, 10.0, 180.0, 180.0]
+
+    # Avec splitting (Option A)
+    results = extract_refined_boxes_from_mask(mask, orig_box, split_multi=True)
+    assert len(results) == 2, f"Attendu 2 boîtes, obtenu {len(results)}"
+    assert results[0]["is_split"] is True
+    assert results[1]["is_split"] is True
+
+    # Le premier nodule retourné est le plus grand (Nodule 2)
+    b0 = results[0]["box"]
+    assert b0[0] == pytest.approx(140.0, abs=1.0)
+    assert b0[1] == pytest.approx(140.0, abs=1.0)
+    assert b0[2] == pytest.approx(25.0, abs=1.0)
+    assert b0[3] == pytest.approx(25.0, abs=1.0)
+
+    # Le deuxième nodule retourné est Nodule 1
+    b1 = results[1]["box"]
+    assert b1[0] == pytest.approx(20.0, abs=1.0)
+    assert b1[1] == pytest.approx(20.0, abs=1.0)
+    assert b1[2] == pytest.approx(20.0, abs=1.0)
+    assert b1[3] == pytest.approx(20.0, abs=1.0)
+
+
+def test_extract_refined_boxes_no_split():
+    """Vérifie que sans splitting (Option B), une seule boîte englobant les 2 nodules est produite."""
+    from rfdetr.data.sam_refiner import extract_refined_boxes_from_mask
+
+    mask = np.zeros((200, 200), dtype=bool)
+    mask[20:40, 20:40] = True
+    mask[140:165, 140:165] = True
+    orig_box = [10.0, 10.0, 180.0, 180.0]
+
+    # Sans splitting (Option B)
+    results = extract_refined_boxes_from_mask(mask, orig_box, split_multi=False)
+    assert len(results) == 1
+    assert results[0]["is_split"] is False
+    # La boîte commune s'étend de x=20 à x=165 (largeur 145)
+    b = results[0]["box"]
+    assert b[0] == pytest.approx(20.0, abs=1.0)
+    assert b[2] == pytest.approx(145.0, abs=1.0)
+
 
 

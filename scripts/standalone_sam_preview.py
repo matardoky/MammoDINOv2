@@ -97,40 +97,122 @@ def read_mammo_normalized_rgb(file_path: str, low_pct: float = 1.0, high_pct: fl
     return np.stack([u8, u8, u8], axis=-1)
 
 
-def refine_box_from_mask(
+def extract_refined_boxes_from_mask(
     mask: np.ndarray,
     original_box_xywh: List[float],
-    min_area_ratio: float = 0.08,
-) -> Tuple[List[float], float]:
-    """Calcule la boîte englobante ajustée à partir d'un masque binaire avec garde-fous."""
+    split_multi: bool = True,
+    min_comp_pixels: int = 64,
+    min_comp_ratio: float = 0.12,
+    min_area_ratio: float = 0.05,
+    max_area_ratio: float = 1.05,
+) -> List[Dict[str, Any]]:
+    """Extrait une ou plusieurs boîtes englobantes ajustées à partir d'un masque binaire.
+
+    Détecte les composantes connexes via cv2.connectedComponentsWithStats.
+    Si split_multi=True et que plusieurs composantes connexes significatives (>12% de la masse)
+    sont présentes, découpe la boîte en autant de boîtes distinctes (Option A - Splitting).
+    """
     ox, oy, ow, oh = original_box_xywh
     orig_area = max(1.0, ow * oh)
 
     if mask is None or not np.any(mask):
-        return list(original_box_xywh), 0.0
+        return [{
+            "box": list(original_box_xywh),
+            "mask": mask,
+            "reduction_pct": 0.0,
+            "is_split": False,
+            "component_idx": 1,
+            "total_components": 1,
+        }]
 
-    ys, xs = np.where(mask)
-    if len(xs) == 0 or len(ys) == 0:
-        return list(original_box_xywh), 0.0
+    u8_mask = (mask > 0).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(u8_mask, connectivity=8)
 
-    nx1 = float(np.min(xs))
-    ny1 = float(np.min(ys))
-    nx2 = float(np.max(xs))
-    ny2 = float(np.max(ys))
-    nw = max(1.0, nx2 - nx1)
-    nh = max(1.0, ny2 - ny1)
-    new_area = nw * nh
+    total_mask_pixels = float(np.count_nonzero(u8_mask))
+    if total_mask_pixels < min_comp_pixels:
+        return [{
+            "box": list(original_box_xywh),
+            "mask": mask,
+            "reduction_pct": 0.0,
+            "is_split": False,
+            "component_idx": 1,
+            "total_components": 1,
+        }]
 
-    # Garde-fou 1 : Bruit minuscule
-    if (new_area / orig_area) < min_area_ratio:
-        return list(original_box_xywh), 0.0
+    # Identifier les composantes significatives
+    valid_components = []
+    for k in range(1, num_labels):
+        c_area = stats[k, cv2.CC_STAT_AREA]
+        if c_area >= min_comp_pixels and (c_area / total_mask_pixels) >= min_comp_ratio:
+            valid_components.append(k)
 
-    # Garde-fou 2 : Masque aberrant plus grand que la boîte initiale
-    if new_area >= orig_area:
-        return list(original_box_xywh), 0.0
+    if len(valid_components) == 0:
+        return [{
+            "box": list(original_box_xywh),
+            "mask": mask,
+            "reduction_pct": 0.0,
+            "is_split": False,
+            "component_idx": 1,
+            "total_components": 1,
+        }]
 
-    reduction_pct = (1.0 - (new_area / orig_area)) * 100.0
-    return [nx1, ny1, nw, nh], reduction_pct
+    # Cas 1 composante OU splitting désactivé
+    if len(valid_components) == 1 or not split_multi:
+        if len(valid_components) == 1:
+            comp_mask = (labels == valid_components[0])
+        else:
+            comp_mask = np.isin(labels, valid_components)
+
+        ys, xs = np.where(comp_mask)
+        x_min, x_max = float(np.min(xs)), float(np.max(xs))
+        y_min, y_max = float(np.min(ys)), float(np.max(ys))
+        nw = max(1.0, x_max - x_min + 1.0)
+        nh = max(1.0, y_max - y_min + 1.0)
+        new_area = nw * nh
+
+        ratio = new_area / orig_area
+        if ratio < min_area_ratio or ratio > max_area_ratio:
+            return [{
+                "box": list(original_box_xywh),
+                "mask": mask,
+                "reduction_pct": 0.0,
+                "is_split": False,
+                "component_idx": 1,
+                "total_components": 1,
+            }]
+
+        red_pct = (1.0 - (new_area / orig_area)) * 100.0
+        return [{
+            "box": [x_min, y_min, nw, nh],
+            "mask": comp_mask,
+            "reduction_pct": red_pct,
+            "is_split": False,
+            "component_idx": 1,
+            "total_components": 1,
+        }]
+
+    # Cas multi-nodules avec scission (Option A)
+    valid_components.sort(key=lambda k: stats[k, cv2.CC_STAT_AREA], reverse=True)
+    results = []
+    for idx, k in enumerate(valid_components, start=1):
+        comp_mask = (labels == k)
+        ys, xs = np.where(comp_mask)
+        x_min, x_max = float(np.min(xs)), float(np.max(xs))
+        y_min, y_max = float(np.min(ys)), float(np.max(ys))
+        nw = max(1.0, x_max - x_min + 1.0)
+        nh = max(1.0, y_max - y_min + 1.0)
+        new_area = nw * nh
+        red_pct = (1.0 - (new_area / orig_area)) * 100.0
+        results.append({
+            "box": [x_min, y_min, nw, nh],
+            "mask": comp_mask,
+            "reduction_pct": red_pct,
+            "is_split": True,
+            "component_idx": idx,
+            "total_components": len(valid_components),
+        })
+
+    return results
 
 
 def run_standalone_sam_preview(
@@ -140,6 +222,7 @@ def run_standalone_sam_preview(
     model_type: str = "vit_b",
     save_path: str = "/content/sam_10_samples_comparison.png",
     seed: int = 42,
+    split_multi_lesions: bool = True,
 ) -> Dict[str, Any]:
     """Exécute la comparaison 2 colonnes Avant/Après SAM sur 10 images sans dépendances tierces."""
     try:
@@ -271,27 +354,41 @@ def run_standalone_sam_preview(
             best_mask = masks[best_idx]
             best_score = float(scores[best_idx])
 
-            tight_b, red_pct = refine_box_from_mask(best_mask, orig_b)
+            refined_items = extract_refined_boxes_from_mask(
+                mask=best_mask,
+                original_box_xywh=orig_b,
+                split_multi=split_multi_lesions,
+            )
 
-            sample_res["orig_boxes"].append(orig_b)
-            sample_res["tight_boxes"].append(tight_b)
-            sample_res["masks"].append(best_mask)
-            sample_res["reductions"].append(red_pct)
-            sample_res["scores"].append(best_score)
-            sample_res["cat_names"].append(cat_name)
+            for item in refined_items:
+                tight_b = item["box"]
+                red_pct = item["reduction_pct"]
+                is_split = item["is_split"]
+                c_idx = item["component_idx"]
+                n_comps = item["total_components"]
 
-            summary_table.append({
-                "index": idx,
-                "file": Path(fname).name[:26] + "...",
-                "class": cat_name,
-                "orig": f"{int(bw)}×{int(bh)}",
-                "tight": f"{int(tight_b[2])}×{int(tight_b[3])}",
-                "reduction": f"-{red_pct:.1f}%",
-                "score": f"{best_score:.2f}",
-            })
+                disp_cat = f"{cat_name} #{c_idx}" if is_split else cat_name
+                sample_res["orig_boxes"].append(orig_b)
+                sample_res["tight_boxes"].append(tight_b)
+                sample_res["masks"].append(item["mask"])
+                sample_res["reductions"].append(red_pct)
+                sample_res["scores"].append(best_score)
+                sample_res["cat_names"].append(disp_cat)
+
+                summary_table.append({
+                    "index": idx,
+                    "file": Path(fname).name[:26] + "...",
+                    "class": disp_cat,
+                    "orig": f"{int(bw)}×{int(bh)}",
+                    "tight": f"{int(tight_b[2])}×{int(tight_b[3])}",
+                    "reduction": f"-{red_pct:.1f}%",
+                    "score": f"{best_score:.2f}",
+                })
 
         samples_results.append(sample_res)
-        print(f"   [{idx:02d}/{len(selected_pairs):02d}] ✅ {Path(fname).name} traité ({len(annos)} lésion(s))")
+        n_out = len(sample_res["tight_boxes"])
+        note = f" (scission en {n_out} nodules)" if n_out > len(annos) else ""
+        print(f"   [{idx:02d}/{len(selected_pairs):02d}] ✅ {Path(fname).name} traité ({n_out} boîte(s){note})")
 
     # 5. Affichage du tableau récapitulatif
     print("\n" + "=" * 85)
@@ -396,6 +493,14 @@ def main():
     parser.add_argument("--model-type", choices=["vit_b", "vit_l"], default="vit_b")
     parser.add_argument("--save-path", default="/content/sam_10_samples_comparison.png")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--split-multi-lesions", action="store_true", default=True,
+        help="Découper les nodules multiples d'une boîte en sous-boîtes distinctes (Option A)"
+    )
+    parser.add_argument(
+        "--no-split", dest="split_multi_lesions", action="store_false",
+        help="Conserver une boîte unique même si plusieurs nodules sont présents (Option B)"
+    )
     args = parser.parse_args()
 
     run_standalone_sam_preview(
@@ -405,6 +510,7 @@ def main():
         model_type=args.model_type,
         save_path=args.save_path,
         seed=args.seed,
+        split_multi_lesions=args.split_multi_lesions,
     )
 
 
