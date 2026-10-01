@@ -74,3 +74,29 @@ def test_sam_cli_help():
     assert "--num-samples" in stdout
     assert "--model-type" in stdout
     assert "--full-dataset" in stdout
+
+
+def test_resolve_image_path_nested_and_case_insensitive(tmp_path):
+    """Vérifie la robustesse de resolve_image_path face aux sous-dossiers et à la casse."""
+    from rfdetr.utils.visualize import resolve_image_path, _IMAGE_DIR_INDEX
+
+    _IMAGE_DIR_INDEX.clear()
+
+    # Création d'une structure de dossiers
+    sub_dir = tmp_path / "subfolder" / "nested"
+    sub_dir.mkdir(parents=True)
+    img_file = sub_dir / "18792357_3468574009796872_L_CC_6f25c293d6.PNG"
+    img_file.write_bytes(b"dummy")
+
+    # 1. Résolution avec chemin relatif et casse différente (.png vs .PNG)
+    found = resolve_image_path("18792357_3468574009796872_L_CC_6f25c293d6.png", images_fallback_dir=str(tmp_path))
+    assert found is not None
+    assert Path(found).resolve() == img_file.resolve()
+
+    # 2. Résolution avec sous-dossier non mentionné
+    found2 = resolve_image_path("nested/18792357_3468574009796872_L_CC_6f25c293d6.PNG", images_fallback_dir=str(tmp_path))
+    assert found2 is not None
+
+    # 3. Fichier inexistant
+    assert resolve_image_path("unknown_file_123.png", images_fallback_dir=str(tmp_path)) is None
+

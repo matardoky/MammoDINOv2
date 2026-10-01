@@ -25,6 +25,29 @@ except ImportError:
     Visualizer = None
 
 
+_IMAGE_DIR_INDEX: dict[str, dict[str, str]] = {}
+
+
+def _get_image_dir_index(directory: str) -> dict[str, str]:
+    """Indexe récursivement un répertoire d'images pour des recherches instantanées O(1)."""
+    import os
+    abs_dir = os.path.abspath(directory)
+    if abs_dir in _IMAGE_DIR_INDEX:
+        return _IMAGE_DIR_INDEX[abs_dir]
+    index: dict[str, str] = {}
+    if os.path.isdir(abs_dir):
+        for root, _, files in os.walk(abs_dir):
+            for f in files:
+                full_p = os.path.join(root, f)
+                index[f] = full_p
+                index[f.lower()] = full_p
+                stem = os.path.splitext(f)[0]
+                index[stem] = full_p
+                index[stem.lower()] = full_p
+    _IMAGE_DIR_INDEX[abs_dir] = index
+    return index
+
+
 def resolve_image_path(file_name: str, images_fallback_dir: Optional[str] = None) -> Optional[str]:
     """Trouve le chemin absolu d'une image en vérifiant le chemin direct, le dossier de fallback et ses sous-dossiers."""
     import os
@@ -37,14 +60,19 @@ def resolve_image_path(file_name: str, images_fallback_dir: Optional[str] = None
         if os.path.isfile(cand1):
             return cand1
         # 2. Concaténation directe avec le nom de base
-        cand2 = os.path.join(images_fallback_dir, os.path.basename(file_name))
+        base = os.path.basename(file_name)
+        cand2 = os.path.join(images_fallback_dir, base)
         if os.path.isfile(cand2):
             return cand2
-        # 3. Recherche dans les sous-dossiers éventuels (ex: train/, val/, sous-dossiers patients)
-        base = os.path.basename(file_name)
-        for root, _, files in os.walk(images_fallback_dir):
-            if base in files:
-                return os.path.join(root, base)
+        # 3. Recherche indexée récursive (gère les sous-dossiers, casse .PNG/.png et correspondances de tronc)
+        idx = _get_image_dir_index(images_fallback_dir)
+        if base in idx:
+            return idx[base]
+        if base.lower() in idx:
+            return idx[base.lower()]
+        stem = os.path.splitext(base)[0]
+        if stem.lower() in idx:
+            return idx[stem.lower()]
     return None
 
 

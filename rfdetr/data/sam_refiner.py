@@ -486,7 +486,7 @@ def run_sam_preview_10_samples(
             })
 
         results_list.append(sample_res)
-        print(f"   [{idx:02d}/{len(selected_images):02d}] ✅ {Path(file_name).name} traité ({len(annos)} lésion(s))")
+        print(f"   [{idx:02d}/{len(selected_pairs):02d}] ✅ {Path(file_name).name} traité ({len(annos)} lésion(s))")
 
     # Affichage du tableau synthétique
     print("\n" + "=" * 90)
@@ -511,7 +511,7 @@ def run_sam_preview_10_samples(
     )
 
     return {
-        "num_samples": len(selected_images),
+        "num_samples": len(selected_pairs),
         "total_lesions": len(summary_table),
         "average_reduction_pct": avg_red,
         "preview_image": out_img_path,

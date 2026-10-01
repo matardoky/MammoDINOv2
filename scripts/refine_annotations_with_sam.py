@@ -31,6 +31,11 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+# Invalider le cache mémoire des modules rfdetr au cas où le script est exécuté dans un kernel Jupyter/Colab persistant
+for _m in list(sys.modules.keys()):
+    if _m.startswith("rfdetr"):
+        del sys.modules[_m]
+
 from rfdetr.data.sam_refiner import (
     refine_entire_coco_dataset,
     run_sam_preview_10_samples,
