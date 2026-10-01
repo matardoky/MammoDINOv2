@@ -173,7 +173,7 @@ dataloader.train = L(build_detection_train_loader)(
             L(T.RandomFlip)(prob=0.5, horizontal=True, vertical=False),
             L(T.ResizeShortestEdge)(
                 short_edge_length=(644, 672, 700, 728, 756, 784, 812),
-                max_size=1624,
+                max_size=1344,
                 sample_style="choice",
             ),
         ],
@@ -181,7 +181,7 @@ dataloader.train = L(build_detection_train_loader)(
             L(T.RandomFlip)(prob=0.5, horizontal=True, vertical=False),
             L(T.ResizeShortestEdge)(
                 short_edge_length=(644, 672, 700, 728, 756, 784, 812),
-                max_size=1624,
+                max_size=1344,
                 sample_style="choice",
             ),
             L(T.RandomCrop)(
@@ -204,7 +204,7 @@ dataloader.test = L(build_detection_test_loader)(
         augmentation=[
             L(T.ResizeShortestEdge)(
                 short_edge_length=(812,),
-                max_size=1624,
+                max_size=1344,
                 sample_style="choice",
             ),
         ],

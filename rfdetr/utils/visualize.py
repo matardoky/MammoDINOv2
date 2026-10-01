@@ -303,7 +303,7 @@ def visualize_predictions(
     seed: Optional[int] = None,
     images_fallback_dir: Optional[str] = None,
     test_size: int = 812,
-    max_size: int = 1624,
+    max_size: int = 1344,
     show: bool = False,
 ) -> None:
     """Visualize Ground Truth vs Model Predictions side-by-side.
@@ -324,7 +324,7 @@ def visualize_predictions(
         seed: Optional random seed for reproducible sampling.
         images_fallback_dir: Directory to locate images if path in JSON needs resolution.
         test_size: Resize shortest edge size for model input (default: 812).
-        max_size: Resize max size for model input (default: 1624).
+        max_size: Resize max size for model input (default: 1344).
     """
     if DatasetCatalog is None or Visualizer is None:
         raise ImportError("detectron2 is required for visualize_predictions")

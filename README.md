@@ -324,7 +324,7 @@ python eval.py \
     --images-dir /content/mammo_data/images \
     --output-dir ./eval_output \
     --test-size 812 \
-    --max-size 1624
+    --max-size 1344
 ```
 
 #### Afficher l'image dans Google Colab
@@ -354,7 +354,7 @@ Pour afficher directement et instantanément la comparaison 2 colonnes sans pass
     --val-json /content/drive/MyDrive/EMBED_Dataset/curated/full_dataset/coco/mass_val.json \
     --images-dir /content/mammo_data/images \
     --test-size 812 \
-    --max-size 1624 \
+    --max-size 1344 \
     --conf-thresh 0.30 \
     --num-images 4 \
     --show

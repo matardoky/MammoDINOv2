@@ -44,7 +44,7 @@ def main():
     parser.add_argument("--images-dir",  required=True, help="Images root directory")
     parser.add_argument("--output-dir",  default="./eval_output")
     parser.add_argument("--test-size",   type=int, default=812)
-    parser.add_argument("--max-size",    type=int, default=1624)
+    parser.add_argument("--max-size",    type=int, default=1344)
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader workers (default: 0 for zero shared-memory overhead)")
     parser.add_argument("--visualize",   dest="visualize", action="store_true", default=True,
                         help="Generate side-by-side comparison figure: Column 1 = Ground Truth bboxes, Column 2 = Model Prediction bboxes (default: True)")

@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--low-pct",      type=float, default=1.0)
     parser.add_argument("--high-pct",     type=float, default=99.0)
     parser.add_argument("--test-size",    type=int, default=812, help="Shortest edge size for inference resize (default: 812)")
-    parser.add_argument("--max-size",     type=int, default=1624, help="Maximum edge size for inference resize (default: 1624)")
+    parser.add_argument("--max-size",     type=int, default=1344, help="Maximum edge size for inference resize (default: 1344)")
     parser.add_argument("--save-dir", "--output-dir", dest="save_dir", default=None, help="Save figures here (optional, if omitted or if --show is passed, displays inline)")
     parser.add_argument("--visualize",    action="store_true", default=False, help="Visualization flag (optional)")
     parser.add_argument("--show",         action="store_true", default=False, help="Force inline display (useful in Jupyter/Colab notebooks)")

@@ -262,7 +262,7 @@ def do_eval(cfg, model):
                 augmentation=[
                     T.ResizeShortestEdge(
                         short_edge_length=(812,),
-                        max_size=1624,
+                        max_size=1344,
                         sample_style="choice",
                     )
                 ],

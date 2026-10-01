@@ -179,7 +179,7 @@ def main(args):
                 cfg.dataloader.train.mapper.augmentation = [
                     L(T.ResizeShortestEdge)(
                         short_edge_length=(812,),
-                        max_size=1624,
+                        max_size=1344,
                         sample_style="choice",
                     )
                 ]
