@@ -13,6 +13,7 @@ import math
 import os
 import shutil
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 try:
@@ -124,7 +125,7 @@ class PersistentBestCheckpointer(HookBase):
                     self._best_metric = val
                     self._best_iter = it
                     logger.info(
-                        f"🛡️ [PersistentBestCheckpointer] Record restauré depuis {Path(self._meta_file).name} : "
+                        f"🛡️ [PersistentBestCheckpointer] Record restauré depuis {os.path.basename(self._meta_file)} : "
                         f"{self._val_metric} = {self._best_metric:.5f} @ iteration {self._best_iter}"
                     )
                     return
