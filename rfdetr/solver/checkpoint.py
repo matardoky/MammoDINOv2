@@ -214,14 +214,53 @@ class PersistentBestCheckpointer(HookBase):
             )
             return False
 
+    def _extract_metric_from_storage(self) -> Optional[float]:
+        """Extrait de manière sûre et robuste la métrique de validation depuis self.trainer.storage."""
+        storage = getattr(self.trainer, "storage", None)
+        if storage is None:
+            return None
+
+        # 1. Via storage.latest() (retourne dict[str, (float, int)] ou dict[str, float])
+        if hasattr(storage, "latest"):
+            try:
+                latest_dict = storage.latest()
+                if self._val_metric in latest_dict:
+                    entry = latest_dict[self._val_metric]
+                    val = float(entry[0] if isinstance(entry, (tuple, list)) else entry)
+                    if not math.isnan(val):
+                        return val
+            except Exception:
+                pass
+
+        # 2. Via storage.histories() (retourne dict[str, HistoryBuffer])
+        if hasattr(storage, "histories"):
+            try:
+                histories = storage.histories()
+                if self._val_metric in histories:
+                    val = float(histories[self._val_metric].latest())
+                    if not math.isnan(val):
+                        return val
+            except Exception:
+                pass
+
+        # 3. Via storage.history(name).latest()
+        if hasattr(storage, "history"):
+            try:
+                val = float(storage.history(self._val_metric).latest())
+                if not math.isnan(val):
+                    return val
+            except Exception:
+                pass
+
+        return None
+
     def after_step(self) -> None:
         next_iter = self.trainer.iter + 1
         is_final = next_iter == self.trainer.max_iter
         if is_final or (self._eval_period > 0 and next_iter % self._eval_period == 0):
-            # Vérifier si la métrique est présente dans le stockage
-            if not hasattr(self.trainer, "storage") or not self.trainer.storage.iter_has_history(self._val_metric, next_iter):
+            latest_val = self._extract_metric_from_storage()
+            if latest_val is None:
                 return
-            latest_val = float(self.trainer.storage.history(self._val_metric).latest())
             if self._update_best(latest_val, next_iter):
                 self._checkpointer.save(f"{self._file_prefix}")
                 logger.info(f"💾 Checkpoint '{self._file_prefix}.pth' mis à jour avec succès !")

@@ -78,3 +78,63 @@ def test_persistent_best_checkpointer_prevents_overwrite_on_resume(tmp_path):
         meta_data = json.load(f)
     assert meta_data["best_score"] == pytest.approx(28.5, rel=1e-5)
     assert meta_data["iteration"] == 22000
+
+
+def test_persistent_best_checkpointer_after_step_with_storage(tmp_path):
+    """Vérifie que after_step extrait correctement la métrique depuis EventStorage."""
+    saved_files = []
+
+    class DummyCheckpointer:
+        def __init__(self, save_dir):
+            self.save_dir = save_dir
+        def save(self, name):
+            saved_files.append(name)
+
+    class DummyStorage:
+        def __init__(self, metric_dict):
+            self._metric_dict = metric_dict
+        def latest(self):
+            return self._metric_dict
+
+    class DummyTrainer:
+        def __init__(self, cur_iter, max_iter, storage):
+            self.iter = cur_iter
+            self.max_iter = max_iter
+            self.storage = storage
+
+    hook = PersistentBestCheckpointer(
+        eval_period=350,
+        checkpointer=DummyCheckpointer(str(tmp_path)),
+        val_metric="bbox/AP50",
+        mode="max",
+        file_prefix="model_best",
+        output_dir=str(tmp_path),
+    )
+
+    # 1. Non-eval iteration (iter 100) -> ne fait rien
+    trainer = DummyTrainer(100, 3500, DummyStorage({"bbox/AP50": (30.0, 100)}))
+    hook.trainer = trainer
+    hook.after_step()
+    assert len(saved_files) == 0
+
+    # 2. Eval iteration (iter 349 -> next_iter=350) avec nouveau record (32.4)
+    # Detectron2 storage.latest() retourne un tuple (val, iteration)
+    trainer = DummyTrainer(349, 3500, DummyStorage({"bbox/AP50": (32.4, 349)}))
+    hook.trainer = trainer
+    hook.after_step()
+    assert len(saved_files) == 1
+    assert saved_files[-1] == "model_best"
+    assert hook._best_metric == pytest.approx(32.4)
+
+    # 3. Eval iteration suivante (iter 699 -> next_iter=700) avec score inférieur (29.1)
+    trainer = DummyTrainer(699, 3500, DummyStorage({"bbox/AP50": (29.1, 699)}))
+    hook.trainer = trainer
+    hook.after_step()
+    assert len(saved_files) == 1  # Pas de nouvelle sauvegarde
+    assert hook._best_metric == pytest.approx(32.4)
+
+    # 4. Storage sans la métrique -> ne crash pas
+    trainer = DummyTrainer(1049, 3500, DummyStorage({"other_metric": (10.0, 1049)}))
+    hook.trainer = trainer
+    hook.after_step()
+    assert len(saved_files) == 1
