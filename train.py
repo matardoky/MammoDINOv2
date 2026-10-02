@@ -164,6 +164,9 @@ def do_train(args, cfg):
     else:
         cfg.optimizer.params = model.parameters()
     optimizer = instantiate(cfg.optimizer)
+    # Guarantee param_groups have initial_lr set to avoid PyTorch _LRScheduler KeyError on resume/init
+    for group in optimizer.param_groups:
+        group.setdefault("initial_lr", group.get("lr", getattr(cfg.optimizer, "lr", 1e-4)))
 
     train_loader = instantiate(cfg.dataloader.train)
 
@@ -230,13 +233,9 @@ def do_train(args, cfg):
     ]
     trainer.register_hooks([h for h in all_hooks if h is not None])
 
-    start_iter = (
-        checkpointer.resume_or_load(cfg.train.init_checkpoint, resume=args.resume).get(
-            "iteration", -1
-        ) + 1
-        if args.resume or cfg.train.get("init_checkpoint")
-        else 0
-    )
+    checkpoint_data = checkpointer.resume_or_load(cfg.train.init_checkpoint, resume=args.resume)
+    start_iter = checkpoint_data.get("iteration", -1) + 1 if args.resume else 0
+    logger.info(f"Training loop starting at iteration {start_iter} up to {cfg.train.max_iter}")
 
     trainer.train(start_iter, cfg.train.max_iter)
 
